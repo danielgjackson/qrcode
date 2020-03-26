@@ -312,71 +312,34 @@ static void QrCodeDrawVersion(qrcode_t *qrcode, uint32_t value)
 // Calculate 15-bit format code (2-bit error-correction level, 3-bit mask, 10-bit BCH error-correction; all masked)
 static uint16_t QrCodeCalcFormat(qrcode_t *qrcode, qrcode_error_correction_level_t errorCorrectionLevel, qrcode_mask_pattern_t maskPattern)
 {
+    // LLMMM
+    int value = ((errorCorrectionLevel & 0x03) << 3) | (maskPattern & 0x07);
+
+    // Calculate 10-bit Bose-Chaudhuri-Hocquenghem (15,5) error-correction
+    int bch = value;
+    for (int i = 0; i < 10; i++) bch = (bch << 1) ^ ((bch >> 9) * 0x0537);
+
     // 0LLMMMEEEEEEEEEE
-    uint16_t format = (errorCorrectionLevel << 13) | (maskPattern << 10);
-
-// TODO: Calculate BCH error correction code (bottom 10 bits); or lookup table.
-;
-
+    uint16_t format = (value << 10) | (bch & 0x03ff);
     static uint16_t formatMask = 0x5412;   // 0b0101010000010010
     format ^= formatMask;
 
     return format;
 }
 
+
 // Calculate 18-bit version information (6-bit version number, 12-bit error-correction (18,6) Golay code)
 static uint32_t QrCodeCalcVersion(qrcode_t *qrcode, int version)
 {
-    uint32_t value = version << 12;
+    // Calculate 12-bit error-correction (18,6) Golay code
+    int golay = version;
+    for (int i = 0; i < 12; i++) golay = (golay << 1) ^ ((golay >> 11) * 0x1f25);
+    long bits = (long)version << 12 | golay;
 
-// TODO: Calculate 12-bit error-correction (18,6) Golay code; or lookup table.
-;
-
+    uint32_t value = ((uint32_t)version << 12) | golay;
     return value;
 }
 
-
-typedef struct {
-    int x;
-    int y;
-} qrcode_cursor_t;
-
-static void QrCodeCursorReset(qrcode_t* qrcode, qrcode_cursor_t* cursor)
-{
-    memset(cursor, 0, sizeof(qrcode_cursor_t));
-    cursor->x = qrcode->size - 1;
-    cursor->y = qrcode->size - 1;
-}
-
-static bool QrCodeCursorAdvance(qrcode_t* qrcode, qrcode_cursor_t* cursor)
-{
-    while (cursor->x >= 0)
-    {
-        // RHS or LHS of 2-module column?
-        bool rhs = (cursor->x & 1) ^ (cursor->x > QRCODE_TIMING_OFFSET ? 1 : 0);
-        // Upwards or downwards?
-        bool upwards = ((cursor->x - (cursor->x > QRCODE_TIMING_OFFSET ? 1 : 0)) / 2) & 1;
-
-        if (rhs) cursor->x--;
-        else
-        {
-            cursor->x++;
-            if (upwards)
-            {
-                if (cursor->y <= 0) cursor->x -= 2;
-                else cursor->y--;
-            }
-            else
-            {
-                if (cursor->y >= qrcode->size - 1) cursor->x -= 2;
-                else cursor->y++;
-            }
-        }
-
-        if (QrCodeIdentifyModule(qrcode, cursor->x, cursor->y) == QRCODE_PART_CONTENT) return true;
-    }
-    return false;
-}
 
 static bool QrCodeCalculateMask(qrcode_mask_pattern_t maskPattern, int j, int i)
 {
@@ -417,6 +380,42 @@ static void QrCodeApplyMask(qrcode_t* qrcode, qrcode_mask_pattern_t maskPattern)
     }
 }
 
+static void QrCodeCursorReset(qrcode_t* qrcode, int* x, int* y)
+{
+    *x = qrcode->size - 1;
+    *y = qrcode->size - 1;
+}
+
+static bool QrCodeCursorAdvance(qrcode_t* qrcode, int* x, int* y)
+{
+    while (*x >= 0)
+    {
+        // Right-hand side of 2-module column? (otherwise, left-hand side)
+        if ((*x & 1) ^ (*x > QRCODE_TIMING_OFFSET ? 1 : 0))
+        {
+            (*x)--;
+        }
+        else // Left-hand side
+        {
+            (*x)++;
+            // Upwards? (otherwise, downwards)
+            if (((*x - (*x > QRCODE_TIMING_OFFSET ? 1 : 0)) / 2) & 1)
+            {
+                if (*y <= 0) *x -= 2;
+                else (*y)--;
+            }
+            else
+            {
+                if (*y >= qrcode->size - 1) *x -= 2;
+                else (*y)++;
+            }
+        }
+        if (QrCodeIdentifyModule(qrcode, *x, *y) == QRCODE_PART_CONTENT) return true;
+    }
+    return false;
+}
+
+
 // Generate the code
 bool QrCodeGenerate(qrcode_t *qrcode, const char *text)
 {
@@ -443,21 +442,22 @@ bool QrCodeGenerate(qrcode_t *qrcode, const char *text)
 
     // TODO: Code generation, ECC, masking
     qrcode_error_correction_level_t errorCorrectionLevel = QRCODE_ECL_M;
-    qrcode_cursor_t cursor;
-    QrCodeCursorReset(qrcode, &cursor);
+    int cursorX, cursorY;
+    QrCodeCursorReset(qrcode, &cursorX, &cursorY);
     int module = 0;
     do {
         int bit = 7 - module % 8;
         int byte = module / 8 % 2;
 int value = (byte ? 200 : 100) + bit;
 //value = bit & 1;
-        QrCodeSetModule(qrcode, cursor.x, cursor.y, value);
+value = 0;
+        QrCodeSetModule(qrcode, cursorX, cursorY, value);
         module++;
-    } while (QrCodeCursorAdvance(qrcode, &cursor));
+    } while (QrCodeCursorAdvance(qrcode, &cursorX, &cursorY));
 
     // TODO: Better masking
     qrcode_mask_pattern_t maskPattern = QRCODE_MASK_000;
-//    QrCodeApplyMask(qrcode, maskPattern);
+    QrCodeApplyMask(qrcode, maskPattern);
 
     // TODO: Format info ()
     // ...
