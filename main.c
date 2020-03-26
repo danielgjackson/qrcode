@@ -116,7 +116,7 @@ int main(int argc, char *argv[])
     const char *value = NULL;
     bool help = false;
     bool invert = false;
-    //int quiet = QRCODE_QUIET_STANDARD;
+    int quiet = QRCODE_QUIET_STANDARD;
     //output_mode_t outputMode = OUTPUT_TEXT_NARROW;
     //int scale = 1;
     //int height = DEFAULT_HEIGHT;
@@ -126,7 +126,7 @@ int main(int argc, char *argv[])
         if (!strcmp(argv[i], "--help")) { help = true; }
         //else if (!strcmp(argv[i], "--height")) { height = atoi(argv[++i]); }
         //else if (!strcmp(argv[i], "--scale")) { scale = atoi(argv[++i]); }
-        //else if (!strcmp(argv[i], "--quiet")) { quiet = atoi(argv[++i]); }
+        else if (!strcmp(argv[i], "--quiet")) { quiet = atoi(argv[++i]); }
         else if (!strcmp(argv[i], "--invert")) { invert = !invert; }
         else if (!strcmp(argv[i], "--file"))
         {
@@ -162,8 +162,8 @@ int main(int argc, char *argv[])
 
     if (help)
     {
-        // [--scale 1] [--quiet 5] [--output:<wide|narrow|bmp>]
-        fprintf(stderr, "USAGE: qrcode [--invert] [--file filename] <value>\n"); 
+        // [--scale 1] [--output:<wide|narrow|bmp>]
+        fprintf(stderr, "USAGE: qrcode [--invert] [--quiet 4] [--file filename] <value>\n"); 
         return -1;
     }
 
@@ -174,6 +174,7 @@ int main(int argc, char *argv[])
     size_t bufferSize = (size_t)(size * size);  // TODO: Final buffer is in bits (specify span) and use quiet margin
     uint8_t *buffer = malloc(bufferSize);
     QrCodeSetBuffer(&qrcode, size, buffer, bufferSize);
+qrcode.quiet = quiet;
     bool result = QrCodeGenerate(&qrcode, value);
 
     printf("QRCODE: %s\n", result ? "success" : "fail");

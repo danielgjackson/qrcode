@@ -8,7 +8,7 @@
 #include <stdint.h>
 
 #define QRCODE_QUIET_NONE 0
-#define QRCODE_QUIET_STANDARD 5    // ???
+#define QRCODE_QUIET_STANDARD 4
 
 #define QRCODE_VERSION_TO_SIZE(_n) (17 + 4 * (_n)) // (21 + 4 * ((_n) - 1))   // V1=21x21; V40=177x177
 
@@ -18,6 +18,8 @@ typedef struct
     size_t bufferSize;
 
     int size;      // NxN dimensions (excluding any quiet margin)
+
+    int quiet;
 
     bool error;
 } qrcode_t;
