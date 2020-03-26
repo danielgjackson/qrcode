@@ -12,7 +12,6 @@
 
 #include "qrcode.h"
 
-#define QRCODE_MAX_VERSION 40
 #define QRCODE_SIZE_TO_VERSION(_n) (((_n) - 17) / 4)
 #define QRCODE_FINDER_SIZE 7
 #define QRCODE_TIMING_OFFSET 6
@@ -57,58 +56,31 @@ typedef enum {
 } qrcode_mask_pattern_t;
 
 // Total data modules minus function pattern and format/version = data capacity in bits
-static uint16_t qrcode_data_capacity[QRCODE_MAX_VERSION + 1] = {
-    0,
-    //  1,     2,     3,     4,     5,     6,     7,     8,     9,     0,
-      208,   359,   567,   807,  1079,  1383,  1568,  1936,  2336,  2768,   // v1-v10
-     3232,  3728,  4256,  4651,  5243,  5867,  6523,  7211,  7931,  8683,   // v11-v20
-     9252, 10068, 10916, 11796, 12708, 13652, 14628, 15371, 16411, 17483,   // v21-v30
-    18587, 19723, 20891, 22091, 23008, 24272, 25568, 26896, 28256, 29648,   // v31-v40
-};
 
-static uint8_t *qrcode_alignment_coordinates[QRCODE_MAX_VERSION + 1] = {
-    (uint8_t[]){ 0 },                               // 0=invalid
-    (uint8_t[]){ 0 },                               // v1   21
-    (uint8_t[]){ 6, 18, 0 },                        // v2   25
-    (uint8_t[]){ 6, 22, 0 },                        // v3   29
-    (uint8_t[]){ 6, 26, 0 },                        // v4   33
-    (uint8_t[]){ 6, 30, 0 },                        // v5   37
-    (uint8_t[]){ 6, 34, 0 },                        // v6   41
-    (uint8_t[]){ 6, 22, 38, 0 },                    // v7   45
-    (uint8_t[]){ 6, 24, 42, 0 },                    // v8   49
-    (uint8_t[]){ 6, 26, 46, 0 },                    // v9   53
-    (uint8_t[]){ 6, 28, 50, 0 },                    // v10  57
-    (uint8_t[]){ 6, 30, 54, 0 },                    // v11  61
-    (uint8_t[]){ 6, 32, 58, 0 },                    // v12  65
-    (uint8_t[]){ 6, 34, 62, 0 },                    // v13  69
-    (uint8_t[]){ 6, 26, 46, 66, 0 },                // v14  73
-    (uint8_t[]){ 6, 26, 48, 70, 0 },                // v15  77
-    (uint8_t[]){ 6, 26, 50, 74, 0 },                // v16  81
-    (uint8_t[]){ 6, 30, 54, 78, 0 },                // v17  85
-    (uint8_t[]){ 6, 30, 56, 82, 0 },                // v18  89
-    (uint8_t[]){ 6, 30, 58, 86, 0 },                // v19  93
-    (uint8_t[]){ 6, 34, 62, 90, 0 },                // v20  97
-    (uint8_t[]){ 6, 28, 50, 72, 94, 0 },            // v21 101
-    (uint8_t[]){ 6, 26, 50, 74, 98, 0 },            // v22 105
-    (uint8_t[]){ 6, 30, 54, 78, 102, 0 },           // v23 109
-    (uint8_t[]){ 6, 28, 54, 80, 106, 0 },           // v24 113
-    (uint8_t[]){ 6, 32, 58, 84, 110, 0 },           // v25 117
-    (uint8_t[]){ 6, 30, 58, 86, 114, 0 },           // v26 121
-    (uint8_t[]){ 6, 34, 62, 90, 118, 0 },           // v27 125
-    (uint8_t[]){ 6, 26, 50, 74, 98, 122, 0 },       // v28 129
-    (uint8_t[]){ 6, 30, 54, 78, 102, 126, 0 },      // v29 133
-    (uint8_t[]){ 6, 26, 52, 78, 104, 130, 0 },      // v30 137
-    (uint8_t[]){ 6, 30, 56, 82, 108, 134, 0 },      // v31 141
-    (uint8_t[]){ 6, 34, 60, 86, 112, 138, 0 },      // v32 145
-    (uint8_t[]){ 6, 30, 58, 86, 114, 142, 0 },      // v33 149
-    (uint8_t[]){ 6, 34, 62, 90, 118, 146, 0 },      // v34 153
-    (uint8_t[]){ 6, 30, 54, 78, 102, 126, 150, 0 }, // v35 157
-    (uint8_t[]){ 6, 24, 50, 76, 102, 128, 154, 0 }, // v36 161
-    (uint8_t[]){ 6, 28, 54, 80, 106, 132, 158, 0 }, // v37 165
-    (uint8_t[]){ 6, 32, 58, 84, 110, 136, 162, 0 }, // v38 169
-    (uint8_t[]){ 6, 26, 54, 82, 110, 138, 166, 0 }, // v39 173
-    (uint8_t[]){ 6, 30, 58, 86, 114, 142, 170, 0 }, // v40 177
-};
+
+static int QrCodeCapacity(int version)
+{
+    int capacity = (16 * version + 128) * version + 64;
+    if (version >= 2) capacity -= (25 * (version / 7 + 2) - 10) * (version / 7 + 2) - 55;
+    if (version >= 7) capacity -= 36;
+    return capacity;
+}
+
+static int QrCodeAlignmentCoordinates(int version, int index)
+{
+    if (version <= 1) return 0;         // no alignment markers
+    if (index == 0) return 6;           // first alignment marker is at offset 6
+    int count = version / 7 + 2;        // number of alignment markers
+    if (index > count) return 0;        // no more markers
+    int location = version * 4 + 10;    // lower alignment marker
+    int step = (version == 32) ? 26 : (version * 4 + count * 2 + 1) / (count * 2 - 2) * 2; // step to previous
+    for (int i = count - 1; i > 0; i--)
+    {
+        if (i == index) return location;
+        location -= step;
+    }
+    return 0;
+}
 
 
 // Initialize a QR Code object
@@ -160,17 +132,17 @@ static qrcode_part_t QrCodeIdentifyModule(qrcode_t* qrcode, int x, int y)
     if (x < QRCODE_FINDER_SIZE && y >= qrcode->size - QRCODE_FINDER_SIZE) return QRCODE_PART_FINDER;            // Bottom-left finder
 
     // Alignment
-    for (uint8_t *h = qrcode_alignment_coordinates[version]; *h > 0; h++)
+    for (int hi = 0, h; (h = QrCodeAlignmentCoordinates(version, hi)) > 0; hi++)
     {
-        if (x >= *h - QRCODE_ALIGNMENT_RADIUS && x <= *h + QRCODE_ALIGNMENT_RADIUS)
+        if (x >= h - QRCODE_ALIGNMENT_RADIUS && x <= h + QRCODE_ALIGNMENT_RADIUS)
         {
-            for (uint8_t* v = qrcode_alignment_coordinates[version]; *v > 0; v++)
+            for (int vi = 0, v; (v = QrCodeAlignmentCoordinates(version, vi)) > 0; vi++)
             {
-                if (*h <= QRCODE_FINDER_SIZE && *v <= QRCODE_FINDER_SIZE) continue;                     // Obscured by top-left finder
-                if (*h >= qrcode->size - 1 - QRCODE_FINDER_SIZE && *v <= QRCODE_FINDER_SIZE) continue;  // Obscured by top-right finder
-                if (*h <= QRCODE_FINDER_SIZE && *v >= qrcode->size - 1 - QRCODE_FINDER_SIZE) continue;  // Obscured by bottom-left finder
-                // x >= *h - QRCODE_ALIGNMENT_RADIUS && x <= *h + QRCODE_ALIGNMENT_RADIUS
-                if (y >= *v - QRCODE_ALIGNMENT_RADIUS && y <= *v + QRCODE_ALIGNMENT_RADIUS) return QRCODE_PART_ALIGNMENT;
+                if (h <= QRCODE_FINDER_SIZE && v <= QRCODE_FINDER_SIZE) continue;                     // Obscured by top-left finder
+                if (h >= qrcode->size - 1 - QRCODE_FINDER_SIZE && v <= QRCODE_FINDER_SIZE) continue;  // Obscured by top-right finder
+                if (h <= QRCODE_FINDER_SIZE && v >= qrcode->size - 1 - QRCODE_FINDER_SIZE) continue;  // Obscured by bottom-left finder
+                // x >= h - QRCODE_ALIGNMENT_RADIUS && x <= h + QRCODE_ALIGNMENT_RADIUS
+                if (y >= v - QRCODE_ALIGNMENT_RADIUS && y <= v + QRCODE_ALIGNMENT_RADIUS) return QRCODE_PART_ALIGNMENT;
             }
         }
     }
@@ -457,14 +429,14 @@ bool QrCodeGenerate(qrcode_t *qrcode, const char *text)
     QrCodeDrawTiming(qrcode);
 
     // Alignment
-    for (uint8_t* h = qrcode_alignment_coordinates[version]; *h > 0; h++)
+    for (int hi = 0, h; (h = QrCodeAlignmentCoordinates(version, hi)) > 0; hi++)
     {
-        for (uint8_t* v = qrcode_alignment_coordinates[version]; *v > 0; v++)
+        for (int vi = 0, v; (v = QrCodeAlignmentCoordinates(version, vi)) > 0; vi++)
         {
-            if (*h <= QRCODE_FINDER_SIZE && *v <= QRCODE_FINDER_SIZE) continue;                     // Obscured by top-left finder
-            if (*h >= qrcode->size - 1 - QRCODE_FINDER_SIZE && *v <= QRCODE_FINDER_SIZE) continue;  // Obscured by top-right finder
-            if (*h <= QRCODE_FINDER_SIZE && *v >= qrcode->size - 1 - QRCODE_FINDER_SIZE) continue;  // Obscured by bottom-left finder
-            QrCodeDrawAlignment(qrcode, *h, *v);
+            if (h <= QRCODE_FINDER_SIZE && v <= QRCODE_FINDER_SIZE) continue;                     // Obscured by top-left finder
+            if (h >= qrcode->size - 1 - QRCODE_FINDER_SIZE && v <= QRCODE_FINDER_SIZE) continue;  // Obscured by top-right finder
+            if (h <= QRCODE_FINDER_SIZE && v >= qrcode->size - 1 - QRCODE_FINDER_SIZE) continue;  // Obscured by bottom-left finder
+            QrCodeDrawAlignment(qrcode, h, v);
         }
     }
 
@@ -498,7 +470,6 @@ int value = (byte ? 200 : 100) + bit;
         uint32_t versionValue = QrCodeCalcVersion(qrcode, version);
         QrCodeDrawVersion(qrcode, versionValue);
     }
-
 
 // Debug dump
 QrCodeDebugDump(qrcode);

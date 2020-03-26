@@ -1,4 +1,4 @@
-// QR Code
+// QR Code Generator
 // Dan Jackson, 2020
 
 #ifndef QRCODE_H
@@ -10,6 +10,7 @@
 #define QRCODE_QUIET_NONE 0
 #define QRCODE_QUIET_STANDARD 4
 
+#define QRCODE_MAX_VERSION 40
 #define QRCODE_VERSION_TO_SIZE(_n) (17 + 4 * (_n)) // (21 + 4 * ((_n) - 1))   // V1=21x21; V40=177x177
 
 typedef struct
@@ -17,11 +18,11 @@ typedef struct
     uint8_t *buffer;
     size_t bufferSize;
 
-    int size;      // NxN dimensions (excluding any quiet margin)
+    int size;       // NxN dimensions (excluding any quiet margin)
 
-    int quiet;
+    int quiet;      // quiet margin
 
-    bool error;
+    //bool error;
 } qrcode_t;
 
 // Initialize a QR Code object

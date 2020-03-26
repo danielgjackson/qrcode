@@ -171,7 +171,7 @@ int main(int argc, char *argv[])
     qrcode_t qrcode;
     QrCodeInit(&qrcode);
     unsigned int size = QRCODE_VERSION_TO_SIZE(7);
-    size_t bufferSize = (size_t)(size * size);  // TODO: Final buffer is in bits (specify span) and use quiet margin
+    size_t bufferSize = (size_t)size * (size_t)size;  // TODO: Final buffer is in bits (specify span) and use quiet margin
     uint8_t *buffer = malloc(bufferSize);
     QrCodeSetBuffer(&qrcode, size, buffer, bufferSize);
 qrcode.quiet = quiet;
