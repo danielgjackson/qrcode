@@ -21,30 +21,6 @@
 #define QRCODE_MODULE_LIGHT 0
 #define QRCODE_MODULE_DARK 1
 
-// Initialize a QR Code object
-void QrCodeInit(qrcode_t *qrcode)
-{
-    memset(qrcode, 0, sizeof(qrcode_t));
-}
-
-int QrCodeGetModule(qrcode_t *qrcode, int x, int y)
-{
-    if (x < 0 || y < 0 || x >= qrcode->size || y >= qrcode->size) return 0; // quiet
-    // TODO: Bitfield instead of byte array
-    int offset = y * qrcode->size + x;
-    if (qrcode->buffer == NULL || offset < 0 || offset >= qrcode->bufferSize) return -1;
-    return qrcode->buffer[offset];
-}
-
-static void QrCodeSetModule(qrcode_t *qrcode, int x, int y, int value)
-{
-    if (x < 0 || y < 0 || x >= qrcode->size || y >= qrcode->size) return; // quiet
-    // TODO: Bitfield instead of byte array
-    int offset = y * qrcode->size + x;
-    if (qrcode->buffer == NULL || offset < 0 || offset >= qrcode->bufferSize) return;
-    qrcode->buffer[offset] = value;
-}
-
 typedef enum {
     // Function patterns
     QRCODE_PART_SEPARATOR = -5,
@@ -59,6 +35,26 @@ typedef enum {
     QRCODE_PART_FORMAT = 2,
     QRCODE_PART_VERSION = 3,
 } qrcode_part_t;
+
+// Error correction level
+typedef enum {
+    QRCODE_ECL_M = 0x00, // 0b00 Medium (~15%)
+    QRCODE_ECL_L = 0x01, // 0b01 Low (~7%)
+    QRCODE_ECL_H = 0x02, // 0b10 High (~30%)
+    QRCODE_ECL_Q = 0x03, // 0b11 Quartile (~25%)
+} qrcode_error_correction_level_t;
+
+// Mask pattern reference (i=row, j=column; true=invert)
+typedef enum {
+    QRCODE_MASK_000 = 0x00, // 0b000 (i + j) mod 2 = 0
+    QRCODE_MASK_001 = 0x01, // 0b001 i mod 2 = 0
+    QRCODE_MASK_010 = 0x02, // 0b010 j mod 3 = 0
+    QRCODE_MASK_011 = 0x03, // 0b011 (i + j) mod 3 = 0
+    QRCODE_MASK_100 = 0x04, // 0b100 ((i div 2) + (j div 3)) mod 2 = 0
+    QRCODE_MASK_101 = 0x05, // 0b101 (i j) mod 2 + (i j) mod 3 = 0
+    QRCODE_MASK_110 = 0x06, // 0b110 ((i j) mod 2 + (i j) mod 3) mod 2 = 0
+    QRCODE_MASK_111 = 0x07, // 0b111 ((i j) mod 3 + (i + j) mod 2) mod 2 = 0
+} qrcode_mask_pattern_t;
 
 // Total data modules minus function pattern and format/version = data capacity in bits
 static uint16_t qrcode_data_capacity[QRCODE_MAX_VERSION + 1] = {
@@ -114,7 +110,32 @@ static uint8_t *qrcode_alignment_coordinates[QRCODE_MAX_VERSION + 1] = {
     (uint8_t[]){ 6, 30, 58, 86, 114, 142, 170, 0 }, // v40 177
 };
 
-// (internal) Determines which part a given module coordinate is.
+
+// Initialize a QR Code object
+void QrCodeInit(qrcode_t *qrcode)
+{
+    memset(qrcode, 0, sizeof(qrcode_t));
+}
+
+int QrCodeGetModule(qrcode_t *qrcode, int x, int y)
+{
+    if (x < 0 || y < 0 || x >= qrcode->size || y >= qrcode->size) return 0; // quiet
+    // TODO: Bitfield instead of byte array
+    int offset = y * qrcode->size + x;
+    if (qrcode->buffer == NULL || offset < 0 || offset >= qrcode->bufferSize) return -1;
+    return qrcode->buffer[offset];
+}
+
+static void QrCodeSetModule(qrcode_t *qrcode, int x, int y, int value)
+{
+    if (x < 0 || y < 0 || x >= qrcode->size || y >= qrcode->size) return; // quiet
+    // TODO: Bitfield instead of byte array
+    int offset = y * qrcode->size + x;
+    if (qrcode->buffer == NULL || offset < 0 || offset >= qrcode->bufferSize) return;
+    qrcode->buffer[offset] = value;
+}
+
+// (internal) Determines which part a given module coordinate belongs to..
 static qrcode_part_t QrCodeIdentifyModule(qrcode_t* qrcode, int x, int y)
 {
     const int version = QRCODE_SIZE_TO_VERSION(qrcode->size);
@@ -253,13 +274,13 @@ static void QrCodeDrawFinder(qrcode_t *qrcode, int ox, int oy)
     }
 }
 
-static void QrCodeDrawTiming(qrcode_t *qrcode, bool vertical)
+static void QrCodeDrawTiming(qrcode_t *qrcode)
 {
     for (int i = QRCODE_FINDER_SIZE + 1; i < qrcode->size - QRCODE_FINDER_SIZE - 1; i++)
     {
         int value = (~i & 1);
-        if (!vertical) QrCodeSetModule(qrcode, i, QRCODE_TIMING_OFFSET, value);
-        else QrCodeSetModule(qrcode, QRCODE_TIMING_OFFSET, i, value);
+        QrCodeSetModule(qrcode, i, QRCODE_TIMING_OFFSET, value);
+        QrCodeSetModule(qrcode, QRCODE_TIMING_OFFSET, i, value);
     }
 }
 
@@ -317,7 +338,7 @@ static void QrCodeDrawVersion(qrcode_t *qrcode, uint32_t value)
 
 
 // Calculate 15-bit format code (2-bit error-correction level, 3-bit mask, 10-bit BCH error-correction; all masked)
-static uint16_t QrCodeCalcFormat(qrcode, errorCorrectionLevel, maskPattern)
+static uint16_t QrCodeCalcFormat(qrcode_t *qrcode, qrcode_error_correction_level_t errorCorrectionLevel, qrcode_mask_pattern_t maskPattern)
 {
     // 0LLMMMEEEEEEEEEE
     uint16_t format = (errorCorrectionLevel << 13) | (maskPattern << 10);
@@ -341,6 +362,7 @@ static uint32_t QrCodeCalcVersion(qrcode_t *qrcode, int version)
 
     return value;
 }
+
 
 typedef struct {
     int x;
@@ -384,6 +406,44 @@ static bool QrCodeCursorAdvance(qrcode_t* qrcode, qrcode_cursor_t* cursor)
     return false;
 }
 
+static bool QrCodeCalculateMask(qrcode_mask_pattern_t maskPattern, int j, int i)
+{
+    switch (maskPattern)
+    {
+        case QRCODE_MASK_000: return ((i + j) & 1) == 0;
+        case QRCODE_MASK_001: return (i & 1) == 0;
+        case QRCODE_MASK_010: return j % 3 == 0;
+        case QRCODE_MASK_011: return (i + j) % 3 == 0;
+        case QRCODE_MASK_100: return (((i >> 1) + (j / 3)) & 1) == 0;
+        case QRCODE_MASK_101: return ((i * j) & 1) + ((i * j) % 3) == 0;
+        case QRCODE_MASK_110: return ((((i * j) & 1) + ((i * j) % 3)) & 1) == 0;
+        case QRCODE_MASK_111: return ((((i * j) % 3) + ((i + j) & 1)) & 1) == 0;
+    }
+    return false;
+}
+
+static void QrCodeApplyMask(qrcode_t* qrcode, qrcode_mask_pattern_t maskPattern)
+{
+    for (int y = 0; y < qrcode->size; y++)
+    {
+        for (int x = 0; x < qrcode->size; x++)
+        {
+            qrcode_part_t part = QrCodeIdentifyModule(qrcode, x, y);
+            if (part == QRCODE_PART_CONTENT)
+            {
+                bool mask = QrCodeCalculateMask(maskPattern, x, y);
+                
+                if (mask)
+                {
+                    int module = QrCodeGetModule(qrcode, x, y);
+                    int value = 1 ^ module;
+                    //value = mask ? QRCODE_MODULE_DARK : QRCODE_MODULE_LIGHT; // DEBUG
+                    QrCodeSetModule(qrcode, x, y, value);
+                }
+            }
+        }
+    }
+}
 
 // Generate the code
 bool QrCodeGenerate(qrcode_t *qrcode, const char *text)
@@ -394,8 +454,7 @@ bool QrCodeGenerate(qrcode_t *qrcode, const char *text)
     QrCodeDrawFinder(qrcode, qrcode->size - 1 - QRCODE_FINDER_SIZE / 2, QRCODE_FINDER_SIZE / 2);
     QrCodeDrawFinder(qrcode, QRCODE_FINDER_SIZE / 2, qrcode->size - 1 - QRCODE_FINDER_SIZE / 2);
 
-    QrCodeDrawTiming(qrcode, false);
-    QrCodeDrawTiming(qrcode, true);
+    QrCodeDrawTiming(qrcode);
 
     // Alignment
     for (uint8_t* h = qrcode_alignment_coordinates[version]; *h > 0; h++)
@@ -411,21 +470,25 @@ bool QrCodeGenerate(qrcode_t *qrcode, const char *text)
 
 
     // TODO: Code generation, ECC, masking
+    qrcode_error_correction_level_t errorCorrectionLevel = QRCODE_ECL_M;
     qrcode_cursor_t cursor;
     QrCodeCursorReset(qrcode, &cursor);
     int module = 0;
     do {
         int bit = 7 - module % 8;
         int byte = module / 8 % 2;
-        QrCodeSetModule(qrcode, cursor.x, cursor.y, (byte ? 200 : 100) + bit);
+int value = (byte ? 200 : 100) + bit;
+//value = bit & 1;
+        QrCodeSetModule(qrcode, cursor.x, cursor.y, value);
         module++;
     } while (QrCodeCursorAdvance(qrcode, &cursor));
 
+    // TODO: Better masking
+    qrcode_mask_pattern_t maskPattern = QRCODE_MASK_000;
+//    QrCodeApplyMask(qrcode, maskPattern);
 
     // TODO: Format info ()
     // ...
-    int errorCorrectionLevel = 0;   // 2-bit
-    int maskPattern = 0;            // 3-bit
     uint16_t format = QrCodeCalcFormat(qrcode, errorCorrectionLevel, maskPattern);
     QrCodeDrawFormat(qrcode, format);
     
