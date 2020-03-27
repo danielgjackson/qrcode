@@ -170,10 +170,11 @@ int main(int argc, char *argv[])
     // Generates the QR Code as a bitmap (0=light, 1=dark) using the specified buffer.
     qrcode_t qrcode;
     QrCodeInit(&qrcode);
-    unsigned int size = QRCODE_VERSION_TO_SIZE(7);
+    int version = 7;
+    int size = QRCODE_VERSION_TO_DIMENSION(version);
     size_t bufferSize = (size_t)size * (size_t)size;  // TODO: Final buffer is in bits (specify span) and use quiet margin
     uint8_t *buffer = malloc(bufferSize);
-    QrCodeSetBuffer(&qrcode, size, buffer, bufferSize);
+    QrCodeSetBuffer(&qrcode, version, buffer, bufferSize);
 qrcode.quiet = quiet;
     bool result = QrCodeGenerate(&qrcode, value);
 
