@@ -7,6 +7,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define QRCODE_QUIET_NONE 0
 #define QRCODE_QUIET_STANDARD 4
 
@@ -60,5 +64,14 @@ void QrCodeSetBuffer(qrcode_t *qrcode, int version, uint8_t *buffer, size_t buff
 
 // Generate the code for the given text
 bool QrCodeGenerate(qrcode_t *qrcode, const char *text);
+
+
+// Output the code to the specified stream
+void QrCodePrintLarge(qrcode_t* qrcode, FILE* fp, bool invert);
+void QrCodePrintCompact(qrcode_t* qrcode, FILE* fp, bool invert);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

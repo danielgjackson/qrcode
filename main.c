@@ -14,15 +14,13 @@
 
 #include "qrcode.h"
 
-/*
-#define DEFAULT_HEIGHT 5
-
 typedef enum {
     OUTPUT_TEXT_WIDE,
     OUTPUT_TEXT_NARROW,
-    OUTPUT_IMAGE_BITMAP,
+//    OUTPUT_IMAGE_BITMAP,
 } output_mode_t;
 
+/*
 // Endian-independent short/long read/write
 static void fputshort(uint16_t v, FILE *fp) { fputc((uint8_t)((v >> 0) & 0xff), fp); fputc((uint8_t)((v >> 8) & 0xff), fp); }
 static void fputlong(uint32_t v, FILE *fp) { fputc((uint8_t)((v >> 0) & 0xff), fp); fputc((uint8_t)((v >> 8) & 0xff), fp); fputc((uint8_t)((v >> 16) & 0xff), fp); fputc((uint8_t)((v >> 24) & 0xff), fp); }
@@ -117,14 +115,12 @@ int main(int argc, char *argv[])
     bool help = false;
     bool invert = false;
     int quiet = QRCODE_QUIET_STANDARD;
-    //output_mode_t outputMode = OUTPUT_TEXT_NARROW;
+    output_mode_t outputMode = OUTPUT_TEXT_NARROW;
     //int scale = 1;
-    //int height = DEFAULT_HEIGHT;
     
     for (int i = 1; i < argc; i++)
     {
         if (!strcmp(argv[i], "--help")) { help = true; }
-        //else if (!strcmp(argv[i], "--height")) { height = atoi(argv[++i]); }
         //else if (!strcmp(argv[i], "--scale")) { scale = atoi(argv[++i]); }
         else if (!strcmp(argv[i], "--quiet")) { quiet = atoi(argv[++i]); }
         else if (!strcmp(argv[i], "--invert")) { invert = !invert; }
@@ -133,8 +129,8 @@ int main(int argc, char *argv[])
             ofp = fopen(argv[++i], "wb");
             if (ofp == NULL) { fprintf(stderr, "ERROR: Unable to open output filename: %s\n", argv[i]); return -1; }
         }
-        //else if (!strcmp(argv[i], "--output:wide")) { outputMode = OUTPUT_TEXT_WIDE; }
-        //else if (!strcmp(argv[i], "--output:narrow")) { outputMode = OUTPUT_TEXT_NARROW; }
+        else if (!strcmp(argv[i], "--output:wide")) { outputMode = OUTPUT_TEXT_WIDE; }
+        else if (!strcmp(argv[i], "--output:narrow")) { outputMode = OUTPUT_TEXT_NARROW; }
         //else if (!strcmp(argv[i], "--output:bmp")) { outputMode = OUTPUT_IMAGE_BITMAP; }
         else if (argv[i][0] == '-')
         {
@@ -162,8 +158,7 @@ int main(int argc, char *argv[])
 
     if (help)
     {
-        // [--scale 1] [--output:<wide|narrow|bmp>]
-        fprintf(stderr, "USAGE: qrcode [--invert] [--quiet 4] [--file filename] <value>\n"); 
+        fprintf(stderr, "USAGE: qrcode [--invert] [--output:<wide|narrow>] [--quiet 4] [--file filename] <value>\n"); 
         return -1;
     }
 
@@ -175,24 +170,24 @@ int main(int argc, char *argv[])
     size_t bufferSize = (size_t)size * (size_t)size;  // TODO: Final buffer is in bits (specify span) and use quiet margin
     uint8_t *buffer = malloc(bufferSize);
     QrCodeSetBuffer(&qrcode, version, buffer, bufferSize);
-qrcode.quiet = quiet;
+    qrcode.quiet = quiet;
     bool result = QrCodeGenerate(&qrcode, value);
 
     printf("QRCODE: %s\n", result ? "success" : "fail");
 
-/*
 #ifdef _WIN32
     if (outputMode == OUTPUT_TEXT_WIDE || outputMode == OUTPUT_TEXT_NARROW) SetConsoleOutputCP(CP_UTF8);
 #endif
 
+#if 0
     switch (outputMode)
     {
-        case OUTPUT_TEXT_WIDE: OutputQrCodeTextWide(ofp, bitmap, length, scale, height, invert); break;
-        case OUTPUT_TEXT_NARROW: OutputQrCodeTextNarrow(ofp, bitmap, length, scale, height, invert); break;
-        case OUTPUT_IMAGE_BITMAP: OutputQrCodeImageBitmap(ofp, bitmap, length, scale, height, invert); break;
+        case OUTPUT_TEXT_WIDE: QrCodePrintLarge(&qrcode, stdout, true); break;
+        case OUTPUT_TEXT_NARROW: QrCodePrintCompact(&qrcode, stdout, true); break;
+        //case OUTPUT_IMAGE_BITMAP: OutputQrCodeImageBitmap(ofp, bitmap, length, scale, height, invert); break;
         default: fprintf(ofp, "<error>"); break;
     }
-*/
+#endif
 
     if (ofp != stdout) fclose(ofp);
     return 0;

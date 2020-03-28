@@ -1,16 +1,26 @@
 // Barcode - Generates a CODE128 barcode
 // Dan Jackson, 2019
 
+// Step 1. Data analysis -- identify characters encoded, select version.
+// Step 2. Data encodation -- convert to segments then a bit stream, pad for version.
+// Step 3. Error correction encoding -- divide sequence into blocks, generate and append error correction codewords.
+// Step 4. Strucutre final message -- interleave data and error correction and remainder bits.
+// Step 5. Module palcement in matrix.
+// Step 6. Masking.
+// Step 7. Format and version information.
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 
-// For debug
+// For output functions (TODO: Move these out?)
 #include <stdio.h>
 
 #include "qrcode.h"
+
+#define QRCODE_DEBUG_DUMP
 
 //#define QRCODE_DIMENSION_TO_VERSION(_n) (((_n) - 17) / 4)
 #define QRCODE_FINDER_SIZE 7
@@ -19,6 +29,38 @@
 #define QRCODE_ALIGNMENT_RADIUS 2
 #define QRCODE_MODULE_LIGHT 0
 #define QRCODE_MODULE_DARK 1
+
+typedef enum {
+    QRCODE_MODE_INDICATOR_ECI = 0x07,               // 0b0111 ECI
+    QRCODE_MODE_INDICATOR_NUMERIC = 0x01,           // 0b0001 Numeric
+    QRCODE_MODE_INDICATOR_ALPHANUMERIC = 0x02,      // 0b0010 Alphanumeric
+    QRCODE_MODE_INDICATOR_8_BIT = 0x04,             // 0b0100 8-bit byte
+    QRCODE_MODE_INDICATOR_KANJI = 0x08,             // 0b1000 Kanji
+    QRCODE_MODE_INDICATOR_STRUCTURED_APPEND = 0x03, // 0b0011 Structured Append
+    QRCODE_MODE_INDICATOR_FNC1_FIRST = 0x05,        // 0b0101 FNC1 (First position)
+    QRCODE_MODE_INDICATOR_FNC1_SECOND = 0x09,       // 0b1001 FNC1 (Second position)
+    QRCODE_MODE_INDICATOR_TERMINATOR = 0x00,        // 0b0000 Terminator (End of Message)
+} qrcode_mode_indicator_t;
+
+
+// Number of bits in Character Count Indicator
+int QrCodeBitsInCharacterCount(qrcode_t* qrcode, qrcode_mode_indicator_t mode)
+{
+    // Bands are (1-9), (10-26), (27-40)
+    switch (mode)
+    {
+        case QRCODE_MODE_INDICATOR_NUMERIC:
+            return (qrcode->version < 10) ? 10 : (qrcode->version < 27) ? 12 : 14;  // Numeric
+        case QRCODE_MODE_INDICATOR_ALPHANUMERIC:
+            return (qrcode->version < 10) ? 9 : (qrcode->version < 27) ? 11 : 13; // Alphanumeric
+        case QRCODE_MODE_INDICATOR_8_BIT:
+            return (qrcode->version < 10) ? 8 : (qrcode->version < 27) ? 16 : 16; // 8-bit
+        case QRCODE_MODE_INDICATOR_KANJI:
+            return (qrcode->version < 10) ? 8 : (qrcode->version < 27) ? 10 : 12; // Kanji
+    }
+    return 0;
+}
+
 
 typedef enum {
     // Function patterns
@@ -153,6 +195,7 @@ static qrcode_part_t QrCodeIdentifyModule(qrcode_t* qrcode, int x, int y)
 }
 
 
+#ifdef QRCODE_DEBUG_DUMP
 // (internal)
 void QrCodeDebugDump(qrcode_t* qrcode)
 {
@@ -200,6 +243,7 @@ void QrCodeDebugDump(qrcode_t* qrcode)
         printf("\033[0m \n");    // reset
     }
 }
+#endif
 
 
 // Assign a buffer and its size (in bytes)
@@ -449,9 +493,47 @@ value = 0;
         QrCodeDrawVersionInfo(qrcode, versionInfo);
     }
 
+#ifdef QRCODE_DEBUG_DUMP
 // Debug dump
 QrCodeDebugDump(qrcode);
+#endif
 
     return false;
+}
+
+
+void QrCodePrintLarge(qrcode_t* qrcode, FILE* fp, bool invert)
+{
+    for (int y = -qrcode->quiet; y < qrcode->dimension + qrcode->quiet; y++)
+    {
+        for (int x = -qrcode->quiet; x < qrcode->dimension + qrcode->quiet; x++)
+        {
+            int bit = QrCodeGetModule(qrcode, x, y) ^ (invert ? 0x1 : 0x0);
+            if (bit != 0) fprintf(fp, "██"); // '\u{2588}' block
+            else fprintf(fp, "  ");          // '\u{0020}' space
+        }
+        fprintf(fp, "\n");
+    }
+}
+
+void QrCodePrintCompact(qrcode_t* qrcode, FILE *fp, bool invert)
+{
+    for (int y = -qrcode->quiet; y < qrcode->dimension + qrcode->quiet; y += 2)
+    {
+        for (int x = -qrcode->quiet; x < qrcode->dimension + qrcode->quiet; x++)
+        {
+            int bitU = QrCodeGetModule(qrcode, x, y);
+            int bitL = (y + 1 < qrcode->dimension + qrcode->quiet) ? QrCodeGetModule(qrcode, x, y + 1) : (invert ? 0 : 1);
+            int value = ((bitL ? 2 : 0) + (bitU ? 1 : 0)) ^ (invert ? 0x3 : 0x0);
+            switch (value)
+            {
+                case 0: fprintf(fp, " "); break; // '\u{0020}' space
+                case 1: fprintf(fp, "▀"); break; // '\u{2580}' upper half block
+                case 2: fprintf(fp, "▄"); break; // '\u{2584}' lower half block
+                case 3: fprintf(fp, "█"); break; // '\u{2588}' block
+            }
+        }
+        fprintf(fp, "\n");
+    }
 }
 
