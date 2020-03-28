@@ -43,6 +43,31 @@ typedef enum {
     QRCODE_MASK_111 = 0x07, // 0b111 ((i j) mod 3 + (i + j) mod 2) mod 2 = 0
 } qrcode_mask_pattern_t;
 
+#define QRCODE_SIZE_MODE_INDICATOR 4                // 4-bit mode indicator
+typedef enum
+{
+    QRCODE_MODE_INDICATOR_AUTOMATIC = -1,           // Automatically select efficient mode
+    QRCODE_MODE_INDICATOR_ECI = 0x07,               // 0b0111 ECI
+    QRCODE_MODE_INDICATOR_NUMERIC = 0x01,           // 0b0001 Numeric (maximal groups of 3/2/1 digits encoded to 10/7/4-bit binary)
+    QRCODE_MODE_INDICATOR_ALPHANUMERIC = 0x02,      // 0b0010 Alphanumeric ('0'-'9', 'A'-'Z', ' ', '$', '%', '*', '+', '-', '.', '/', ':') -> 0-44 index. Pairs combined (a*45+b) encoded as 11-bit; odd remainder encoded as 6-bit.
+    QRCODE_MODE_INDICATOR_8_BIT = 0x04,             // 0b0100 8-bit byte
+    QRCODE_MODE_INDICATOR_KANJI = 0x08,             // 0b1000 Kanji
+    QRCODE_MODE_INDICATOR_STRUCTURED_APPEND = 0x03, // 0b0011 Structured Append
+    QRCODE_MODE_INDICATOR_FNC1_FIRST = 0x05,        // 0b0101 FNC1 (First position)
+    QRCODE_MODE_INDICATOR_FNC1_SECOND = 0x09,       // 0b1001 FNC1 (Second position)
+    QRCODE_MODE_INDICATOR_TERMINATOR = 0x00,        // 0b0000 Terminator (End of Message)
+} qrcode_mode_indicator_t;
+
+// A single segment of text encoded in one mode
+typedef struct qrcode_segment_tag
+{
+    qrcode_mode_indicator_t mode;       // Segment mode indicator
+    const char* text;                   // Source text
+    size_t charCount;                   // Number of characters
+    struct qrcode_segment_tag* next;    // Next segment
+} qrcode_segment_t;
+
+
 // QR Code Object
 typedef struct
 {
@@ -55,6 +80,8 @@ typedef struct
     int quiet;      // Size of quiet margin for output (not stored)
 
     int dimension;  // Cached value, calculated from the version
+
+    qrcode_segment_t *firstSegment;
 
     //bool error;   // flag that the object is in an erroneous state
 } qrcode_t;

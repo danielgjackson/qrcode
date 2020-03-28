@@ -45,21 +45,6 @@ static size_t QrCodeBufferAppend(uint8_t *writeBuffer, size_t writePosition, uin
     return bitCount;
 }
 
-#define QRCODE_SIZE_MODE_INDICATOR 4                // 4-bit mode indicator
-typedef enum
-{
-    QRCODE_MODE_INDICATOR_AUTOMATIC = -1,           // Automatically select efficient mode
-    QRCODE_MODE_INDICATOR_ECI = 0x07,               // 0b0111 ECI
-    QRCODE_MODE_INDICATOR_NUMERIC = 0x01,           // 0b0001 Numeric (maximal groups of 3/2/1 digits encoded to 10/7/4-bit binary)
-    QRCODE_MODE_INDICATOR_ALPHANUMERIC = 0x02,      // 0b0010 Alphanumeric ('0'-'9', 'A'-'Z', ' ', '$', '%', '*', '+', '-', '.', '/', ':') -> 0-44 index. Pairs combined (a*45+b) encoded as 11-bit; odd remainder encoded as 6-bit.
-    QRCODE_MODE_INDICATOR_8_BIT = 0x04,             // 0b0100 8-bit byte
-    QRCODE_MODE_INDICATOR_KANJI = 0x08,             // 0b1000 Kanji
-    QRCODE_MODE_INDICATOR_STRUCTURED_APPEND = 0x03, // 0b0011 Structured Append
-    QRCODE_MODE_INDICATOR_FNC1_FIRST = 0x05,        // 0b0101 FNC1 (First position)
-    QRCODE_MODE_INDICATOR_FNC1_SECOND = 0x09,       // 0b1001 FNC1 (Second position)
-    QRCODE_MODE_INDICATOR_TERMINATOR = 0x00,        // 0b0000 Terminator (End of Message)
-} qrcode_mode_indicator_t;
-
 
 // [Table 13] Number of error correction blocks (count of error-correction-blocks; for each error-correction level and version)
 static const int8_t qrcode_ecc_block_count[1 << QRCODE_SIZE_ECL][QRCODE_VERSION_MAX + 1] = {
@@ -83,17 +68,17 @@ static const int8_t qrcode_ecc_block_codewords[1 << QRCODE_SIZE_ECL][QRCODE_VERS
 // Total data modules (raw: data, ecc and remainder) minus function pattern and format/version = data capacity in bits
 static size_t QrCodeCapacity(int version)
 {
-    size_t capacity = (16 * version + 128) * version + 64;
+    int capacity = (16 * version + 128) * version + 64;
     if (version >= 2) capacity -= (25 * (version / 7 + 2) - 10) * (version / 7 + 2) - 55;
     if (version >= 7) capacity -= 36;
-    return capacity;
+    return (size_t)capacity;
 }
 
 // Total number of data 8-bit codewords (cooked: after ecc and remainder)
 static size_t QrCodeDataCapacity(int version, qrcode_error_correction_level_t errorCorrectionLevel)
 {
     size_t capacityCodewords = QrCodeCapacity(version) / 8;
-    size_t eccCodewords = qrcode_ecc_block_count[errorCorrectionLevel][version] * qrcode_ecc_block_codewords[errorCorrectionLevel][version];
+    size_t eccCodewords = (size_t)qrcode_ecc_block_count[errorCorrectionLevel][version] * qrcode_ecc_block_codewords[errorCorrectionLevel][version];
     size_t dataCapacity = capacityCodewords - eccCodewords;
     return dataCapacity;
 }
@@ -137,26 +122,19 @@ static bool QrCodeSegmentAlphanumericCheck(const char* text, size_t charCount, b
 
 
 
-// Defines a single segment of text encoded in one mode
-typedef struct
-{
-    qrcode_mode_indicator_t mode;   // Segment mode indicator
-    const char *text;               // Source text
-    size_t charCount;               // Number of characters
-} qrcode_segment_t;
-
 // Calculate segment buffer sizes (payload only -- excluding 4-bit mode indicator and version-specific sized char count)
 #define QRCODE_SEGMENT_NUMERIC_BUFFER_BITS(_c) ((10 * ((_c) / 3)) + (((_c) % 3) * 4) - (((_c) % 3) / 2))
 #define QRCODE_SEGMENT_ALPHANUMERIC_BUFFER_BITS(_c) (11 * ((_c) >> 1) + 6 * ((_c) & 1))
 #define QRCODE_SEGMENT_8_BIT_BUFFER_BITS(_c) (8 * (_c))
 
-static void QrCodeSegmentInit(qrcode_segment_t *segment, qrcode_mode_indicator_t mode, const char *text, size_t charCount)
+static void QrCodeSegmentAppend(qrcode_t *qrcode, qrcode_segment_t *segment, qrcode_mode_indicator_t mode, const char *text, size_t charCount)
 {
     memset(segment, 0, sizeof(*segment));
     if (charCount == (size_t)-1) charCount = strlen(text);
     segment->mode = mode;
     segment->charCount = charCount;
     segment->text = text;
+    segment->next = NULL;
 
     // Find the most efficient mode for the entire given string (TODO: Analyize sub-strings for more efficient mode switching)
     if (segment->mode == QRCODE_MODE_INDICATOR_AUTOMATIC)
@@ -164,6 +142,14 @@ static void QrCodeSegmentInit(qrcode_segment_t *segment, qrcode_mode_indicator_t
         if (QrCodeSegmentNumericCheck(text, segment->charCount)) segment->mode = QRCODE_MODE_INDICATOR_NUMERIC;
         else if (QrCodeSegmentAlphanumericCheck(text, segment->charCount, false)) segment->mode = QRCODE_MODE_INDICATOR_ALPHANUMERIC;
         else segment->mode = QRCODE_MODE_INDICATOR_8_BIT;
+    }
+
+    qrcode_segment_t* seg = qrcode->firstSegment;
+    if (seg == NULL) { qrcode->firstSegment = segment; }
+    else
+    {
+        while (seg->next != NULL) seg = seg->next;
+        seg->next = segment;
     }
 }
 
@@ -690,12 +676,19 @@ static bool QrCodeCursorAdvance(qrcode_t* qrcode, int* x, int* y)
 bool QrCodeGenerate(qrcode_t *qrcode, const char *text)
 {
     qrcode_segment_t segment;
-    QrCodeSegmentInit(&segment, QRCODE_MODE_INDICATOR_AUTOMATIC, text, (size_t)-1);
+    QrCodeSegmentAppend(qrcode, &segment, QRCODE_MODE_INDICATOR_AUTOMATIC, text, (size_t)-1);
   
     // TODO: Allow specific version to be set, automatic by default
     for (int version = QRCODE_VERSION_MIN; version <= QRCODE_VERSION_MAX; version++)
     {
-        size_t sizeBits = QrCodeSegmentSize(&segment, version);
+
+// TODO: include end terminator and padding???
+        size_t sizeBits = 0;
+        for (qrcode_segment_t* seg = qrcode->firstSegment; seg != NULL; seg = seg->next)
+        {
+            sizeBits += QrCodeSegmentSize(seg, version);
+        }
+
         size_t dataCapacityModules = QrCodeDataCapacity(version, qrcode->errorCorrectionLevel);
         if (sizeBits < 8 * dataCapacityModules)
         {
