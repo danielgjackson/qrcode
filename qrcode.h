@@ -19,17 +19,9 @@ extern "C" {
 #define QRCODE_VERSION_MAX 40
 #define QRCODE_VERSION_TO_DIMENSION(_n) (17 + 4 * (_n)) // (21 + 4 * ((_n) - 1))   // V1=21x21; V40=177x177
 
-// Calculate segment buffer sizes
-#define QRCODE_BUFFER_SIZE_BYTES(_bits) (((_bits) + 7) / 8)
-#define QRCODE_SEGMENT_NUMERIC_BUFFER_BITS(_c) ((10 * ((_c) / 3)) + (((_c) % 3) * 4) - (((_c) % 3) / 2))
-#define QRCODE_SEGMENT_NUMERIC_BUFFER_BYTES(_c) QRCODE_BUFFER_SIZE_BYTES(QRCODE_SEGMENT_NUMERIC_BUFFER_BITS((_c)))
-#define QRCODE_SEGMENT_ALPHANUMERIC_BUFFER_BITS(_c) (11 * ((_c) >> 1) + 6 * ((_c) & 1))
-#define QRCODE_SEGMENT_ALPHANUMERIC_BUFFER_BYTES(_c) QRCODE_BUFFER_SIZE_BYTES(QRCODE_SEGMENT_ALPHANUMERIC_BUFFER_BITS((_c)))
-#define QRCODE_SEGMENT_8_BIT_BUFFER_BITS(_c) (8 * (_c))
-#define QRCODE_SEGMENT_8_BIT_BUFFER_BYTES(_c) (_c)
-
 
 // Error correction level
+#define QRCODE_SIZE_ECL 2   // 2-bit error correction
 typedef enum {
     QRCODE_ECL_M = 0x00, // 0b00 Medium (~15%)
     QRCODE_ECL_L = 0x01, // 0b01 Low (~7%)
@@ -38,6 +30,7 @@ typedef enum {
 } qrcode_error_correction_level_t;
 
 // Mask pattern reference (i=row, j=column; where true: invert)
+#define QRCODE_SIZE_MASK 3  // 3-bit mask size
 typedef enum {
     QRCODE_MASK_AUTO = -1,  // Automatically determine best mask
     QRCODE_MASK_000 = 0x00, // 0b000 (i + j) mod 2 = 0
@@ -61,10 +54,22 @@ typedef struct
     qrcode_mask_pattern_t maskPattern;
     int quiet;      // Size of quiet margin for output (not stored)
 
-    int dimension;  // Calculated from the version
+    int dimension;  // Cached value, calculated from the version
 
     //bool error;   // flag that the object is in an erroneous state
 } qrcode_t;
+
+
+
+// Step 1. Data analysis -- identify characters encoded, select version.
+// Step 2. Data encodation -- convert to segments then a bit stream, pad for version.
+// Step 3. Error correction encoding -- divide sequence into blocks, generate and append error correction codewords.
+// Step 4. Strucutre final message -- interleave data and error correction and remainder bits.
+// Step 5. Module palcement in matrix.
+// Step 6. Masking.
+// Step 7. Format and version information.
+
+
 
 // Initialize a QR Code object
 void QrCodeInit(qrcode_t *qrcode);
