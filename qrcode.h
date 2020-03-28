@@ -19,6 +19,14 @@ extern "C" {
 #define QRCODE_VERSION_MAX 40
 #define QRCODE_VERSION_TO_DIMENSION(_n) (17 + 4 * (_n)) // (21 + 4 * ((_n) - 1))   // V1=21x21; V40=177x177
 
+// Calculate segment buffer sizes
+#define QRCODE_BUFFER_SIZE_BYTES(_bits) (((_bits) + 7) / 8)
+#define QRCODE_SEGMENT_NUMERIC_BUFFER_BITS(_c) ((10 * ((_c) / 3)) + (((_c) % 3) * 4) - (((_c) % 3) / 2))
+#define QRCODE_SEGMENT_NUMERIC_BUFFER_BYTES(_c) QRCODE_BUFFER_SIZE_BYTES(QRCODE_SEGMENT_NUMERIC_BUFFER_BITS((_c)))
+#define QRCODE_SEGMENT_ALPHANUMERIC_BUFFER_BITS(_c) (11 * ((_c) >> 1) + 6 * ((_c) & 1))
+#define QRCODE_SEGMENT_ALPHANUMERIC_BUFFER_BYTES(_c) QRCODE_BUFFER_SIZE_BYTES(QRCODE_SEGMENT_ALPHANUMERIC_BUFFER_BITS((_c)))
+
+
 // Error correction level
 typedef enum {
     QRCODE_ECL_M = 0x00, // 0b00 Medium (~15%)

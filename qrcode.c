@@ -30,10 +30,28 @@
 #define QRCODE_MODULE_LIGHT 0
 #define QRCODE_MODULE_DARK 1
 
-typedef enum {
+#define QRCODE_PAD_CODEWORDS 0xec11 // Pad codewords 0b11101100=0xec 0b00010001=0x11
+
+
+// Write bits to buffer
+static size_t QrCodeBufferAppend(uint8_t *writeBuffer, size_t writePosition, uint32_t value, size_t bitCount)
+{
+    for (size_t i = 0; i < bitCount; i++)
+    {
+        uint8_t *writeByte = writeBuffer + ((writePosition + i) >> 3);
+        int writeBit = 7 - ((writePosition + i) & 0x07);
+        int mask = (1 << (bitCount - 1 - i));
+        *writeByte = (*writeByte & ~(1 << mask)) | (value & (1 << mask));
+    }
+    return bitCount;
+}
+
+
+typedef enum
+{
     QRCODE_MODE_INDICATOR_ECI = 0x07,               // 0b0111 ECI
-    QRCODE_MODE_INDICATOR_NUMERIC = 0x01,           // 0b0001 Numeric
-    QRCODE_MODE_INDICATOR_ALPHANUMERIC = 0x02,      // 0b0010 Alphanumeric
+    QRCODE_MODE_INDICATOR_NUMERIC = 0x01,           // 0b0001 Numeric (maximal groups of 3/2/1 digits encoded to 10/7/4-bit binary)
+    QRCODE_MODE_INDICATOR_ALPHANUMERIC = 0x02,      // 0b0010 Alphanumeric ('0'-'9', 'A'-'Z', ' ', '$', '%', '*', '+', '-', '.', '/', ':') -> 0-44 index. Pairs combined (a*45+b) encoded as 11-bit; odd remainder encoded as 6-bit.
     QRCODE_MODE_INDICATOR_8_BIT = 0x04,             // 0b0100 8-bit byte
     QRCODE_MODE_INDICATOR_KANJI = 0x08,             // 0b1000 Kanji
     QRCODE_MODE_INDICATOR_STRUCTURED_APPEND = 0x03, // 0b0011 Structured Append
@@ -41,6 +59,107 @@ typedef enum {
     QRCODE_MODE_INDICATOR_FNC1_SECOND = 0x09,       // 0b1001 FNC1 (Second position)
     QRCODE_MODE_INDICATOR_TERMINATOR = 0x00,        // 0b0000 Terminator (End of Message)
 } qrcode_mode_indicator_t;
+
+
+// Defines a single segment of text encoded in one mode
+typedef struct
+{
+    qrcode_mode_indicator_t mode;   // Segment mode
+    size_t charCount;               // Original number of characters (must be remembered for version-specific encoding)
+    const uint8_t *buffer;          // Buffer of encoded bits
+    size_t bitCount;                // Number of bits in the segment
+} qrcode_segment_t;
+
+
+// Creates an 8-bit text segment
+qrcode_segment_t QrCodeSegment8bitCreate(const char *text, size_t charCount)
+{
+    qrcode_segment_t segment = { 0 };
+    segment.mode = QRCODE_MODE_INDICATOR_8_BIT;
+    segment.charCount = charCount;
+    segment.buffer = (const uint8_t *)text;
+    segment.bitCount = (size_t)8 * segment.charCount;
+    return segment;
+}
+
+// Check the buffer is entirely compatible with a numeric encoding
+bool QrCodeSegmentNumericCheck(const char *text, size_t charCount)
+{
+    for (size_t i = 0; i < charCount; i++)
+    {
+        if (text[i] < '0' || text[i] > '9') return false;
+    }
+    return true;
+}
+
+// Creates a numeric segment, buffer size should be at least: QRCODE_SEGMENT_NUMERIC_BUFFER_BYTES(charCount)
+qrcode_segment_t QrCodeSegmentNumericCreate(const char *text, size_t charCount, uint8_t *buffer)
+{
+    qrcode_segment_t segment = { 0 };
+    segment.mode = QRCODE_MODE_INDICATOR_NUMERIC;
+    segment.charCount = charCount;
+    segment.buffer = (const uint8_t *)buffer;
+    segment.bitCount = 0;
+    for (size_t i = 0; i < charCount; )
+    {
+        size_t remain = (charCount - i) > 3 ? 3 : (charCount - i);
+        int value = text[i] - '0';
+        int bits = 4;
+        // Maximal groups of 3/2/1 digits encoded to 10/7/4-bit binary
+        if (remain > 1) { value = value * 10 + text[i + 1] - '0'; bits += 3; }
+        if (remain > 2) { value = value * 10 + text[i + 2] - '0'; bits += 3; }
+        segment.bitCount += QrCodeBufferAppend(buffer, segment.bitCount, value, bits);
+        i += remain;
+    }
+    return segment;
+}
+
+// Returns Alphanumeric index for a character (0-44), or -1 if none
+int QrCodeSegmentAlphanumericIndex(char c, bool allowLowercase)
+{
+    if (c >= '0' && c <= '9') return c - '0';      // 0-9 (0-9)
+    if (c >= 'A' && c <= 'Z') return 10 + c - 'A'; // A-Z (10-35)
+    if (allowLowercase && c >= 'a' && c <= 'z') return 10 + c - 'a'; // transform to upper-case A-Z (10-35)
+    //  36,  37,  38,  39,  40,  41,  42,  43,  44
+    // ' ', '$', '%', '*', '+', '-', '.', '/', ':'
+    //0x20,0x24,0x25,0x2A,0x2B,0x2D,0x2E,0x2F,0x3A
+    static const char *symbols = " $%*+-./:";
+    const char *p = strchr(symbols, c);
+    if (p != NULL) return 36 + (int)(p - symbols);
+    return -1;
+}
+
+// Check the buffer is entirely compatible with an alphanumeric encoding
+bool QrCodeSegmentAlphanumericCheck(const char *text, size_t charCount, bool allowLowercase)
+{
+    for (size_t i = 0; i < charCount; i++)
+    {
+        if (QrCodeSegmentAlphanumericIndex(text[i], allowLowercase) < 0) return false;
+    }
+    return true;
+}
+
+// Creates an alphanumeric segment, buffer size should be at least: QRCODE_SEGMENT_ALPHANUMERIC_BUFFER_BYTES(charCount)
+qrcode_segment_t QrCodeSegmentAlphanumericCreate(const char *text, size_t charCount, uint8_t *buffer)
+{
+    qrcode_segment_t segment = { 0 };
+    segment.mode = QRCODE_MODE_INDICATOR_ALPHANUMERIC;
+    segment.charCount = charCount;
+    segment.buffer = (const uint8_t*)buffer;
+    segment.bitCount = 0;
+    for (size_t i = 0; i < charCount; )
+    {
+        size_t remain = (charCount - i) > 2 ? 2 : (charCount - i);
+        int value = QrCodeSegmentAlphanumericIndex(text[i], true);
+        int bits = 6;
+        // Pairs combined(a * 45 + b) encoded as 11 - bit; odd remainder encoded as 6 - bit.
+        if (remain > 1) { value = value * 45 + QrCodeSegmentAlphanumericIndex(text[i], true); bits += 5; }
+        segment.bitCount += QrCodeBufferAppend(buffer, segment.bitCount, value, bits);
+        i += remain;
+    }
+    return segment;
+}
+
 
 
 // Number of bits in Character Count Indicator
@@ -62,7 +181,8 @@ int QrCodeBitsInCharacterCount(qrcode_t* qrcode, qrcode_mode_indicator_t mode)
 }
 
 
-typedef enum {
+typedef enum
+{
     // Function patterns
     QRCODE_PART_ALIGNMENT = -4, // Alignment pattern(s)
     QRCODE_PART_TIMING = -3,    // Timing pattern
@@ -208,7 +328,8 @@ void QrCodeDebugDump(qrcode_t* qrcode)
             const char *s = "??";
             int color = QrCodeGetModule(qrcode, x, y);;
 
-            switch (part) {
+            switch (part)
+            {
                 case QRCODE_PART_QUIET:     s = ".."; break;
                 case QRCODE_PART_CONTENT:   s = "[]"; break;
                 case QRCODE_PART_SEPARATOR: s = "::"; break;
@@ -219,7 +340,8 @@ void QrCodeDebugDump(qrcode_t* qrcode)
                 case QRCODE_PART_TIMING:    s = "Ti"; break;
             }
             // Debug double digits
-            if (color >= 100) {
+            if (color >= 100)
+            {
                 static char buf[3];
                 buf[0] = '0' + (color / 10) % 10;
                 buf[1] = '0' + color % 10;
@@ -228,7 +350,8 @@ void QrCodeDebugDump(qrcode_t* qrcode)
                 s = buf;
                 color = color >= 200 ? 4 : 3;
             }
-            if (color != lastColor) {
+            if (color != lastColor)
+            {
                 //if (color == 0) printf("\033[30m\033[47;1m");   // White background, black text
                 //if (color == 1) printf("\033[37;1m\033[40m");   // Black background, white text
                 if (color == QRCODE_MODULE_LIGHT) printf("\033[37m\033[47;1m");      // Grey text, white background
@@ -467,7 +590,8 @@ bool QrCodeGenerate(qrcode_t *qrcode, const char *text)
     int cursorX, cursorY;
     QrCodeCursorReset(qrcode, &cursorX, &cursorY);
     int module = 0;
-    do {
+    do
+    {
         int bit = 7 - module % 8;
         int byte = module / 8 % 2;
 int value = (byte ? 200 : 100) + bit;
