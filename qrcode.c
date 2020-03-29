@@ -840,6 +840,18 @@ static void QrCodeRSRemainder(const uint8_t data[], size_t dataLen, const uint8_
     }
 }
 
+size_t QrCodeCursorWrite(qrcode_t *qrcode, int *cursorX, int *cursorY, uint8_t *buffer, size_t sourceBit, size_t countBits)
+{
+    size_t index = sourceBit;
+    for (int countWritten = 0; countWritten < countBits; countWritten++)
+    {
+        int bit = QrCodeBufferRead(buffer, index);
+        QrCodeModuleSet(qrcode, *cursorX, *cursorY, bit);
+        index++;
+        if (!QrCodeCursorAdvance(qrcode, cursorX, cursorY)) break;
+    }
+    return index - sourceBit;
+}
 
 
 // Generate the code
@@ -905,46 +917,49 @@ bool QrCodeGenerate(qrcode_t *qrcode, uint8_t *buffer, uint8_t *scratchBuffer)
     // ECC settings for the level and verions
     int eccCodewords = qrcode_ecc_block_codewords[qrcode->errorCorrectionLevel][qrcode->version];
     int eccBlockCount = qrcode_ecc_block_count[qrcode->errorCorrectionLevel][qrcode->version];
-
-    // Position in buffer for ECC data
-    int eccOffset = (QRCODE_TOTAL_CAPACITY(qrcode->version) - (8 * eccCodewords * eccBlockCount)) / 8;
-#if 1
-if (bitPosition != 8 * eccOffset || bitPosition != qrcode->dataCapacity || qrcode->dataCapacity != 8 * eccOffset) printf("ERROR: Expected current bit position (%d) to match ECC offset *8 (%d) and data capacity (%d).\n", (int)bitPosition, (int)eccOffset * 8, (int)qrcode->dataCapacity);
-#endif
+    size_t totalCapacity = QRCODE_TOTAL_CAPACITY(qrcode->version);
 
     // Calculate Reed-Solomon divisor
     uint8_t eccDivisor[QRCODE_ECC_CODEWORDS_MAX];
     QrCodeRSDivisor(eccCodewords, eccDivisor);
 
+    // Position in buffer for ECC data
+    size_t eccOffset = (totalCapacity - (8 * eccCodewords * eccBlockCount)) / 8;
+#if 1
+if ((bitPosition != 8 * eccOffset) || (bitPosition != qrcode->dataCapacity) || (qrcode->dataCapacity != 8 * eccOffset)) printf("ERROR: Expected current bit position (%d) to match ECC offset *8 (%d) and data capacity (%d).\n", (int)bitPosition, (int)eccOffset * 8, (int)qrcode->dataCapacity);
+#endif
+
     // Calculate ECC for each block -- write all consecutively after the data (will be interleaved later)
     for (int block = 0; block < eccBlockCount; block++)
     {
-// TODO: Block data and interleave ECC
-if (block > 0) printf("ERROR: Multiple block ECC/interleave not yet supported.\n");
-
 // TODO: Calculate offset and length correctly (earlier consecutive blocks may be short by 1 codeword)
-int dataLen = qrcode->dataCapacity / 8 / eccBlockCount;
-int dataOffset = 0;
-
+size_t dataLen = qrcode->dataCapacity / 8 / eccBlockCount;
+size_t dataOffset = 0;
         // Calculate this block's ECC
-        uint8_t *eccDest = qrcode->scratchBuffer + eccOffset + (block * eccCodewords);
+        uint8_t *eccDest = qrcode->scratchBuffer + eccOffset + (block * (size_t)eccCodewords);
         QrCodeRSRemainder(qrcode->scratchBuffer + dataOffset, dataLen, eccDivisor, eccCodewords, eccDest);
     }
 
-// TODO: Interleave reads for block/ecc
+    // Generate the interleaved QR Code data bits
+// TODO: Interleave reads for each codeword accross data blocks
     int cursorX, cursorY;
     QrCodeCursorReset(qrcode, &cursorX, &cursorY);
-    int capacity = QRCODE_TOTAL_CAPACITY(qrcode->version);
-    int i = 0;
-    do
-    {
-        int bit = QrCodeBufferRead(qrcode->scratchBuffer, i);
-//printf(">>> #%d/%d @(%d,%d) =%d\n", (int)i, capacity, cursorX, cursorY, bit);
-        QrCodeModuleSet(qrcode, cursorX, cursorY, bit);
-        i++;
-    } while (QrCodeCursorAdvance(qrcode, &cursorX, &cursorY));
+    size_t totalWritten = 0;
+    size_t sourceBit;
+    size_t countBits;
 
-printf("*** dataCapacity=%d capacity=%d measuredCapacity=%d\n", (int)qrcode->dataCapacity, (int)capacity, i);
+// TODO: For each block, interleave
+    sourceBit = 0;
+    countBits = totalCapacity;
+    totalWritten += QrCodeCursorWrite(qrcode, &cursorX, &cursorY, qrcode->scratchBuffer, sourceBit, countBits);
+
+// TODO: Interleave reads for each codeword accross ecc blocks
+    int block = 0;
+    sourceBit = 8 * eccOffset + (block * (size_t)eccCodewords * 8);
+    countBits = eccCodewords * 8;
+    totalWritten += QrCodeCursorWrite(qrcode, &cursorX, &cursorY, qrcode->scratchBuffer, sourceBit, countBits);
+
+printf("*** dataCapacity=%d capacity=%d measuredCapacity=%d\n", (int)qrcode->dataCapacity, (int)totalCapacity, (int)totalWritten);
 
     // TODO: Better masking
     qrcode->maskPattern = QRCODE_MASK_000;
