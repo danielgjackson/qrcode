@@ -162,16 +162,23 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    // Generates the QR Code as a bitmap (0=light, 1=dark) using the specified buffer.
+
+    // Clean QR Code object
     qrcode_t qrcode;
-    QrCodeInit(&qrcode);
-    int version = 7;
-    int size = QRCODE_VERSION_TO_DIMENSION(version);
-    size_t bufferSize = (size_t)size * (size_t)size;  // TODO: Final buffer is in bits (specify span) and use quiet margin
+    QrCodeInit(&qrcode, QRCODE_VERSION_MAX, QRCODE_ECL_M, quiet);
+
+    // Add one text segment
+    qrcode_segment_t segment;
+    QrCodeSegmentAppend(&qrcode, &segment, QRCODE_MODE_INDICATOR_AUTOMATIC, value, QRCODE_TEXT_LENGTH);
+
+    // Gets required buffer sizes
+    size_t scratchBufferSize = 0;
+    size_t bufferSize = QrCodeBufferSize(&qrcode, &scratchBufferSize);
+
+    // Generates the QR Code as a bitmap (0=light, 1=dark) using the specified buffer.
     uint8_t *buffer = malloc(bufferSize);
-    QrCodeSetBuffer(&qrcode, version, buffer, bufferSize);
-    qrcode.quiet = quiet;
-    bool result = QrCodeGenerate(&qrcode, value);
+    uint8_t *scratchBuffer = malloc(scratchBufferSize);
+    bool result = QrCodeGenerate(&qrcode, buffer, scratchBuffer);
 
     printf("QRCODE: %s\n", result ? "success" : "fail");
 

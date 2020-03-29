@@ -19,6 +19,25 @@ extern "C" {
 #define QRCODE_VERSION_MAX 40
 #define QRCODE_VERSION_TO_DIMENSION(_n) (17 + 4 * (_n)) // (21 + 4 * ((_n) - 1))   // V1=21x21; V40=177x177
 
+#define QRCODE_BUFFER_SIZE_BYTES(_bits) (((_bits) + 7) >> 3)
+
+// Total data modules (raw: data, ecc and remainder) minus function pattern and format/version = data capacity in bits
+#define QRCODE_TOTAL_CAPACITY(_v) (((16 * (_v) + 128) * (_v)) + 64 - ((_v) < 2 ? 0 : (25 * ((_v) / 7 + 2) - 10) * ((_v) / 7 + 2) - 55) - ((_v) < 7 ? 0 : 36))
+#define QRCODE_SCRATCH_BUFFER_SIZE(_v) QRCODE_BUFFER_SIZE_BYTES(QRCODE_TOTAL_CAPACITY(_v))
+
+#define QRCODE_BUFFER_SIZE(_v) QRCODE_BUFFER_SIZE_BYTES(QRCODE_VERSION_TO_DIMENSION(_v) * QRCODE_VERSION_TO_DIMENSION(_v))
+/*
+static size_t QrCodeTotalCapacity(int version)
+{
+    int capacity = (16 * version + 128) * version + 64;
+    if (version >= 2) capacity -= (25 * (version / 7 + 2) - 10) * (version / 7 + 2) - 55;
+    if (version >= 7) capacity -= 36;
+    return (size_t)capacity;
+}
+*/
+
+
+#define QRCODE_TEXT_LENGTH ((size_t)-1)
 
 // Error correction level
 #define QRCODE_SIZE_ECL 2   // 2-bit error correction
@@ -67,23 +86,33 @@ typedef struct qrcode_segment_tag
     struct qrcode_segment_tag* next;    // Next segment
 } qrcode_segment_t;
 
-
 // QR Code Object
 typedef struct
 {
-    uint8_t *buffer;
-    size_t bufferSize;
-
-    int version;    // QRCODE_VERSION_MIN-QRCODE_VERSION_MAX; QRCODE_VERSION_AUTO: automatic
+    // Initial settings
+    int maxVersion;         // Maximum allowed version
     qrcode_error_correction_level_t errorCorrectionLevel;
-    qrcode_mask_pattern_t maskPattern;
-    int quiet;      // Size of quiet margin for output (not stored)
+    bool optimizeEcc;       // Allow finding a better ECC for free within the same size
 
-    int dimension;  // Cached value, calculated from the version
-
+    // Data payload
     qrcode_segment_t *firstSegment;
 
-    //bool error;   // flag that the object is in an erroneous state
+    // Calculated after preparation (also recalcualtes version if auto and ECL if optimized)
+    bool prepared;
+    int version;            // QRCODE_VERSION_MIN-QRCODE_VERSION_MAX; QRCODE_VERSION_AUTO: automatic
+    size_t sizeBits;        // Total number of data bits from segments in the QR Code (not including bits added when space for: 4-bit terminator mode indicator, 0-padding to byte, padding bytes; or ECC)
+    int dimension;          // Size of code itself (modules in width and height), does not include quiet margin
+    size_t dataCapacity;    // Total number of true data bits available in the codewords (after ecc and remainder)
+    size_t bufferSize;          // Required size of QR Code buffer
+    size_t scratchBufferSize;   // Required size of scratch buffer
+
+    // Used during code creation
+    qrcode_mask_pattern_t maskPattern;
+    uint8_t *buffer;
+    uint8_t *scratchBuffer;
+
+    // Extraction
+    int quiet;          // Size of quiet margin for output (not stored)
 } qrcode_t;
 
 
@@ -99,13 +128,16 @@ typedef struct
 
 
 // Initialize a QR Code object
-void QrCodeInit(qrcode_t *qrcode);
+void QrCodeInit(qrcode_t *qrcode, int maxVersion, qrcode_error_correction_level_t errorCorrectionLevel, int quiet);
 
 // Set the QR Code version and assign a buffer and its size (in bytes)
-void QrCodeSetBuffer(qrcode_t *qrcode, int version, uint8_t *buffer, size_t bufferSize);
+void QrCodeSegmentAppend(qrcode_t *qrcode, qrcode_segment_t* segment, qrcode_mode_indicator_t mode, const char* text, size_t charCount);
+
+// Get the minimum buffer size for output, and scratch buffer size (will be less than the output buffer size)
+size_t QrCodeBufferSize(qrcode_t *qrcode, size_t *scratchBufferSize);
 
 // Generate the code for the given text
-bool QrCodeGenerate(qrcode_t *qrcode, const char *text);
+bool QrCodeGenerate(qrcode_t *qrcode, uint8_t *buffer, uint8_t *scratchBuffer);
 
 
 // Output the code to the specified stream
