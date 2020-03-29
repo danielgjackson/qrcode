@@ -97,6 +97,7 @@ static const int8_t qrcode_ecc_block_codewords[1 << QRCODE_SIZE_ECL][QRCODE_VERS
     { 0, 17, 28, 22, 16, 22, 28, 26, 26, 24, 28, 24, 28, 22, 24, 24, 30, 28, 28, 26, 28, 30, 24, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30 },  // 0b10 High
     { 0, 13, 22, 18, 26, 18, 24, 18, 22, 20, 24, 28, 26, 24, 20, 30, 24, 28, 28, 26, 30, 28, 30, 30, 30, 30, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30 },  // 0b11 Quartile
 };
+#define QRCODE_ECC_CODEWORDS_MAX 30
 
 
 // Total number of data bits available in the codewords (cooked: after ecc and remainder)
@@ -785,6 +786,62 @@ size_t QrCodeBufferSize(qrcode_t *qrcode, size_t *scratchBufferSize)
 }
 
 
+
+// Reed-Solomon Error-Correction Code
+
+// Product modulo GF(2^8/0x011D)
+// This function from "QR Code generator library" https://www.nayuki.io/page/qr-code-generator-library Copyright (c) Project Nayuki. (MIT License)
+static uint8_t QrCodeRSMultiply(uint8_t a, uint8_t b)
+{
+    uint8_t value = 0;
+    for (int i = 7; i >= 0; i--)
+    {
+        value = (uint8_t)((value << 1) ^ ((value >> 7) * 0x011D));
+        value ^= ((b >> i) & 1) * a;
+    }
+    return value;
+}
+
+// Reed-Solomon ECC generator polynomial for given degree.
+// This function from "QR Code generator library" https://www.nayuki.io/page/qr-code-generator-library Copyright (c) Project Nayuki. (MIT License)
+void QrCodeRSDivisor(int degree, uint8_t result[])
+{
+    memset(result, 0, (size_t)degree * sizeof(result[0]));
+    result[degree - 1] = 1;
+    uint8_t root = 1;
+    for (int i = 0; i < degree; i++)
+    {
+        for (int j = 0; j < degree; j++)
+        {
+            result[j] = QrCodeRSMultiply(result[j], root);
+            if (j + 1 < degree)
+            {
+                result[j] ^= result[j + 1];
+            }
+        }
+        root = QrCodeRSMultiply(root, 0x02);
+    }
+}
+
+// Reed-Solomon ECC.
+// This function from "QR Code generator library" https://www.nayuki.io/page/qr-code-generator-library Copyright (c) Project Nayuki. (MIT License)
+static void QrCodeRSRemainder(const uint8_t data[], size_t dataLen, const uint8_t generator[], int degree, uint8_t result[])
+{
+    memset(result, 0, (size_t)degree * sizeof(result[0]));
+    for (size_t i = 0; i < dataLen; i++)
+    {
+        uint8_t factor = data[i] ^ result[0];
+        memmove(&result[0], &result[1], (size_t)(degree - 1) * sizeof(result[0]));
+        result[degree - 1] = 0;
+        for (int j = 0; j < degree; j++)
+        {
+            result[j] ^= QrCodeRSMultiply(generator[j], factor);
+        }
+    }
+}
+
+
+
 // Generate the code
 bool QrCodeGenerate(qrcode_t *qrcode, uint8_t *buffer, uint8_t *scratchBuffer)
 {
@@ -847,9 +904,19 @@ bool QrCodeGenerate(qrcode_t *qrcode, uint8_t *buffer, uint8_t *scratchBuffer)
 
 
     // TODO: Generate ECC
+    int eccCodewords = qrcode_ecc_block_codewords[qrcode->errorCorrectionLevel][qrcode->version];
+    int eccBlockCount = qrcode_ecc_block_count[qrcode->errorCorrectionLevel][qrcode->version];
+    uint8_t eccDivisor[QRCODE_ECC_CODEWORDS_MAX];   // TODO: make max-version compile-time option to limit embedded stack use
+    QrCodeRSDivisor(eccCodewords, eccDivisor);
 
-    // TODO: Code generation, ECC, masking
-    qrcode_error_correction_level_t errorCorrectionLevel = QRCODE_ECL_M;
+// TODO: Block data and interleave ECC
+if (eccBlockCount > 1) printf("ERROR: Multiple block ECC/interleave not yet supported.\n");
+
+    int dataLen = qrcode->dataCapacity / 8;
+    uint8_t *eccDest = qrcode->scratchBuffer + dataLen;
+    QrCodeRSRemainder(qrcode->scratchBuffer, dataLen, eccDivisor, eccCodewords, eccDest);
+
+// TODO: Interleave reads if required?
     int cursorX, cursorY;
     QrCodeCursorReset(qrcode, &cursorX, &cursorY);
     int capacity = QRCODE_TOTAL_CAPACITY(qrcode->version);
@@ -857,14 +924,16 @@ bool QrCodeGenerate(qrcode_t *qrcode, uint8_t *buffer, uint8_t *scratchBuffer)
     do
     {
         int bit = QrCodeBufferRead(qrcode->scratchBuffer, i);
-printf(">>> #%d/%d @(%d,%d) =%d\n", (int)i, capacity, cursorX, cursorY, bit);
+//printf(">>> #%d/%d @(%d,%d) =%d\n", (int)i, capacity, cursorX, cursorY, bit);
         QrCodeModuleSet(qrcode, cursorX, cursorY, bit);
         i++;
     } while (QrCodeCursorAdvance(qrcode, &cursorX, &cursorY));
 
+printf("*** dataCapacity=%d capacity=%d measuredCapacity=%d\n", (int)qrcode->dataCapacity, (int)capacity, i);
+
     // TODO: Better masking
     qrcode->maskPattern = QRCODE_MASK_000;
-//    QrCodeApplyMask(qrcode, qrcode->maskPattern);
+    QrCodeApplyMask(qrcode, qrcode->maskPattern);
 
     // TODO: Evaluate masking attempt
 
