@@ -131,7 +131,7 @@ typedef struct
 void QrCodeInit(qrcode_t *qrcode, int maxVersion, qrcode_error_correction_level_t errorCorrectionLevel, int quiet);
 
 // Set the QR Code version and assign a buffer and its size (in bytes)
-void QrCodeSegmentAppend(qrcode_t *qrcode, qrcode_segment_t* segment, qrcode_mode_indicator_t mode, const char* text, size_t charCount);
+void QrCodeSegmentAppend(qrcode_t *qrcode, qrcode_segment_t* segment, qrcode_mode_indicator_t mode, const char* text, size_t charCount, bool mayUppercase);
 
 // Get the minimum buffer size for output, and scratch buffer size (will be less than the output buffer size)
 size_t QrCodeBufferSize(qrcode_t *qrcode, size_t *scratchBufferSize);

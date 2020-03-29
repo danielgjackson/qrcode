@@ -115,6 +115,7 @@ int main(int argc, char *argv[])
     bool help = false;
     bool invert = false;
     int quiet = QRCODE_QUIET_STANDARD;
+    bool mayUppercase = false;
     output_mode_t outputMode = OUTPUT_TEXT_NARROW;
     //int scale = 1;
     
@@ -124,6 +125,7 @@ int main(int argc, char *argv[])
         //else if (!strcmp(argv[i], "--scale")) { scale = atoi(argv[++i]); }
         else if (!strcmp(argv[i], "--quiet")) { quiet = atoi(argv[++i]); }
         else if (!strcmp(argv[i], "--invert")) { invert = !invert; }
+        else if (!strcmp(argv[i], "--uppercase")) { mayUppercase = true; }
         else if (!strcmp(argv[i], "--file"))
         {
             ofp = fopen(argv[++i], "wb");
@@ -158,7 +160,7 @@ int main(int argc, char *argv[])
 
     if (help)
     {
-        fprintf(stderr, "USAGE: qrcode [--invert] [--output:<wide|narrow>] [--quiet 4] [--file filename] <value>\n"); 
+        fprintf(stderr, "USAGE: qrcode [--uppercase] [--invert] [--output:<wide|narrow>] [--quiet 4] [--file filename] <value>\n"); 
         return -1;
     }
 
@@ -169,7 +171,7 @@ int main(int argc, char *argv[])
 
     // Add one text segment
     qrcode_segment_t segment;
-    QrCodeSegmentAppend(&qrcode, &segment, QRCODE_MODE_INDICATOR_AUTOMATIC, value, QRCODE_TEXT_LENGTH);
+    QrCodeSegmentAppend(&qrcode, &segment, QRCODE_MODE_INDICATOR_AUTOMATIC, value, QRCODE_TEXT_LENGTH, mayUppercase);
 
     // Gets required buffer sizes
     size_t scratchBufferSize = 0;
@@ -186,7 +188,7 @@ int main(int argc, char *argv[])
     if (outputMode == OUTPUT_TEXT_WIDE || outputMode == OUTPUT_TEXT_NARROW) SetConsoleOutputCP(CP_UTF8);
 #endif
 
-#if 0
+#if 1
     switch (outputMode)
     {
         case OUTPUT_TEXT_WIDE: QrCodePrintLarge(&qrcode, stdout, true); break;

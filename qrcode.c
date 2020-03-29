@@ -19,7 +19,7 @@
 
 #include "qrcode.h"
 
-#define QRCODE_DEBUG_DUMP
+//#define QRCODE_DEBUG_DUMP
 
 //#define QRCODE_DIMENSION_TO_VERSION(_n) (((_n) - 17) / 4)
 #define QRCODE_FINDER_SIZE 7
@@ -121,11 +121,11 @@ static bool QrCodeSegmentNumericCheck(const char* text, size_t charCount)
 }
 
 // Returns Alphanumeric index for a character (0-44), or -1 if none
-static int QrCodeSegmentAlphanumericIndex(char c, bool allowLowercase)
+static int QrCodeSegmentAlphanumericIndex(char c, bool mayUppercase)
 {
     if (c >= '0' && c <= '9') return c - '0';      // 0-9 (0-9)
     if (c >= 'A' && c <= 'Z') return 10 + c - 'A'; // A-Z (10-35)
-    if (allowLowercase && c >= 'a' && c <= 'z') return 10 + c - 'a'; // transform to upper-case A-Z (10-35)
+    if (mayUppercase && c >= 'a' && c <= 'z') return 10 + c - 'a'; // transform to upper-case A-Z (10-35)
     //  36,  37,  38,  39,  40,  41,  42,  43,  44
     // ' ', '$', '%', '*', '+', '-', '.', '/', ':'
     //0x20,0x24,0x25,0x2A,0x2B,0x2D,0x2E,0x2F,0x3A
@@ -136,11 +136,11 @@ static int QrCodeSegmentAlphanumericIndex(char c, bool allowLowercase)
 }
 
 // Check the buffer is entirely compatible with an alphanumeric encoding
-static bool QrCodeSegmentAlphanumericCheck(const char* text, size_t charCount, bool allowLowercase)
+static bool QrCodeSegmentAlphanumericCheck(const char* text, size_t charCount, bool mayUppercase)
 {
     for (size_t i = 0; i < charCount; i++)
     {
-        if (QrCodeSegmentAlphanumericIndex(text[i], allowLowercase) < 0) return false;
+        if (QrCodeSegmentAlphanumericIndex(text[i], mayUppercase) < 0) return false;
     }
     return true;
 }
@@ -153,7 +153,7 @@ static bool QrCodeSegmentAlphanumericCheck(const char* text, size_t charCount, b
 #define QRCODE_SEGMENT_ALPHANUMERIC_BUFFER_BITS(_c) (11 * ((_c) >> 1) + 6 * ((_c) & 1))
 #define QRCODE_SEGMENT_8_BIT_BUFFER_BITS(_c) (8 * (_c))
 
-void QrCodeSegmentAppend(qrcode_t *qrcode, qrcode_segment_t *segment, qrcode_mode_indicator_t mode, const char *text, size_t charCount)
+void QrCodeSegmentAppend(qrcode_t *qrcode, qrcode_segment_t *segment, qrcode_mode_indicator_t mode, const char *text, size_t charCount, bool mayUppercase)
 {
     memset(segment, 0, sizeof(*segment));
     if (charCount == QRCODE_TEXT_LENGTH) charCount = strlen(text);
@@ -166,7 +166,7 @@ void QrCodeSegmentAppend(qrcode_t *qrcode, qrcode_segment_t *segment, qrcode_mod
     if (segment->mode == QRCODE_MODE_INDICATOR_AUTOMATIC)
     {
         if (QrCodeSegmentNumericCheck(text, segment->charCount)) segment->mode = QRCODE_MODE_INDICATOR_NUMERIC;
-        else if (QrCodeSegmentAlphanumericCheck(text, segment->charCount, false)) segment->mode = QRCODE_MODE_INDICATOR_ALPHANUMERIC;
+        else if (QrCodeSegmentAlphanumericCheck(text, segment->charCount, mayUppercase)) segment->mode = QRCODE_MODE_INDICATOR_ALPHANUMERIC;
         else segment->mode = QRCODE_MODE_INDICATOR_8_BIT;
     }
 
@@ -220,7 +220,7 @@ static size_t QrCodeSegmentWriteAlphanumeric(uint8_t *buffer, size_t bitPosition
         int value = QrCodeSegmentAlphanumericIndex(text[i], true);
         int bits = 6;
         // Pairs combined(a * 45 + b) encoded as 11 - bit; odd remainder encoded as 6 - bit.
-        if (remain > 1) { value = value * 45 + QrCodeSegmentAlphanumericIndex(text[i], true); bits += 5; }
+        if (remain > 1) { value = value * 45 + QrCodeSegmentAlphanumericIndex(text[i + 1], true); bits += 5; }
         bitsWritten += QrCodeBufferAppend(buffer, bitPosition + bitsWritten, value, bits);
         i += remain;
     }
@@ -902,21 +902,36 @@ bool QrCodeGenerate(qrcode_t *qrcode, uint8_t *buffer, uint8_t *scratchBuffer)
 //dump_scratch(qrcode->scratchBuffer, bitPosition, "padding");
     }
 
-
-    // TODO: Generate ECC
+    // ECC settings for the level and verions
     int eccCodewords = qrcode_ecc_block_codewords[qrcode->errorCorrectionLevel][qrcode->version];
     int eccBlockCount = qrcode_ecc_block_count[qrcode->errorCorrectionLevel][qrcode->version];
-    uint8_t eccDivisor[QRCODE_ECC_CODEWORDS_MAX];   // TODO: make max-version compile-time option to limit embedded stack use
+
+    // Position in buffer for ECC data
+    int eccOffset = (QRCODE_TOTAL_CAPACITY(qrcode->version) - (8 * eccCodewords * eccBlockCount)) / 8;
+#if 1
+if (bitPosition != 8 * eccOffset || bitPosition != qrcode->dataCapacity || qrcode->dataCapacity != 8 * eccOffset) printf("ERROR: Expected current bit position (%d) to match ECC offset *8 (%d) and data capacity (%d).\n", (int)bitPosition, (int)eccOffset * 8, (int)qrcode->dataCapacity);
+#endif
+
+    // Calculate Reed-Solomon divisor
+    uint8_t eccDivisor[QRCODE_ECC_CODEWORDS_MAX];
     QrCodeRSDivisor(eccCodewords, eccDivisor);
 
+    // Calculate ECC for each block -- write all consecutively after the data (will be interleaved later)
+    for (int block = 0; block < eccBlockCount; block++)
+    {
 // TODO: Block data and interleave ECC
-if (eccBlockCount > 1) printf("ERROR: Multiple block ECC/interleave not yet supported.\n");
+if (block > 0) printf("ERROR: Multiple block ECC/interleave not yet supported.\n");
 
-    int dataLen = qrcode->dataCapacity / 8;
-    uint8_t *eccDest = qrcode->scratchBuffer + dataLen;
-    QrCodeRSRemainder(qrcode->scratchBuffer, dataLen, eccDivisor, eccCodewords, eccDest);
+// TODO: Calculate offset and length correctly (earlier consecutive blocks may be short by 1 codeword)
+int dataLen = qrcode->dataCapacity / 8 / eccBlockCount;
+int dataOffset = 0;
 
-// TODO: Interleave reads if required?
+        // Calculate this block's ECC
+        uint8_t *eccDest = qrcode->scratchBuffer + eccOffset + (block * eccCodewords);
+        QrCodeRSRemainder(qrcode->scratchBuffer + dataOffset, dataLen, eccDivisor, eccCodewords, eccDest);
+    }
+
+// TODO: Interleave reads for block/ecc
     int cursorX, cursorY;
     QrCodeCursorReset(qrcode, &cursorX, &cursorY);
     int capacity = QRCODE_TOTAL_CAPACITY(qrcode->version);
