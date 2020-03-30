@@ -117,12 +117,17 @@ int main(int argc, char *argv[])
     int quiet = QRCODE_QUIET_STANDARD;
     bool mayUppercase = false;
     output_mode_t outputMode = OUTPUT_TEXT_NARROW;
+    qrcode_error_correction_level_t errorCorrectionLevel = QRCODE_ECL_M;
     //int scale = 1;
     
     for (int i = 1; i < argc; i++)
     {
         if (!strcmp(argv[i], "--help")) { help = true; }
         //else if (!strcmp(argv[i], "--scale")) { scale = atoi(argv[++i]); }
+        else if (!strcmp(argv[i], "--ecl:l")) { errorCorrectionLevel = QRCODE_ECL_L; }
+        else if (!strcmp(argv[i], "--ecl:m")) { errorCorrectionLevel = QRCODE_ECL_M; }
+        else if (!strcmp(argv[i], "--ecl:q")) { errorCorrectionLevel = QRCODE_ECL_Q; }
+        else if (!strcmp(argv[i], "--ecl:h")) { errorCorrectionLevel = QRCODE_ECL_H; }
         else if (!strcmp(argv[i], "--quiet")) { quiet = atoi(argv[++i]); }
         else if (!strcmp(argv[i], "--invert")) { invert = !invert; }
         else if (!strcmp(argv[i], "--uppercase")) { mayUppercase = true; }
@@ -160,14 +165,14 @@ int main(int argc, char *argv[])
 
     if (help)
     {
-        fprintf(stderr, "USAGE: qrcode [--uppercase] [--invert] [--output:<wide|narrow>] [--quiet 4] [--file filename] <value>\n"); 
+        fprintf(stderr, "USAGE: qrcode [--ecl:<l|m|q|h>] [--uppercase] [--invert] [--output:<wide|narrow>] [--quiet 4] [--file filename] <value>\n"); 
         return -1;
     }
 
 
     // Clean QR Code object
     qrcode_t qrcode;
-    QrCodeInit(&qrcode, QRCODE_VERSION_MAX, QRCODE_ECL_M, quiet);
+    QrCodeInit(&qrcode, QRCODE_VERSION_MAX, errorCorrectionLevel, quiet);
 
     // Add one text segment
     qrcode_segment_t segment;
