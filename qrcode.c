@@ -200,10 +200,11 @@ static size_t QrCodeBitsInCharacterCount(int version, qrcode_mode_indicator_t mo
         return (version < 10) ? 9 : (version < 27) ? 11 : 13; // Alphanumeric
     case QRCODE_MODE_INDICATOR_8_BIT:
         return (version < 10) ? 8 : (version < 27) ? 16 : 16; // 8-bit
-    //case QRCODE_MODE_INDICATOR_KANJI:
-    //    return (version < 10) ? 8 : (version < 27) ? 10 : 12; // Kanji
+    case QRCODE_MODE_INDICATOR_KANJI:
+        return (version < 10) ? 8 : (version < 27) ? 10 : 12; // Kanji
+    default:
+        return 0;
     }
-    return 0;
 }
 
 // Size of a segment (including 4-bit mode indicator, version-specific sized char count, mode-specific encoding)
@@ -227,8 +228,11 @@ static size_t QrCodeSegmentSize(qrcode_segment_t *segment, int version)
         {
             uint32_t eciAssigmentNumber = (uint32_t)segment->charCount;
             bits += (eciAssigmentNumber <= 0xFF) ? 8 : (eciAssigmentNumber <= 0x3FFF) ? 16 : 24;
+            break;
         }
-        break;
+        default:
+            // Other segments?
+            break;
     }
     return bits;
 }
@@ -309,7 +313,6 @@ void QrCodeInit(qrcode_t *qrcode, int maxVersion, qrcode_error_correction_level_
 int QrCodeModuleGet(qrcode_t *qrcode, int x, int y)
 {
     if (x < 0 || y < 0 || x >= qrcode->dimension || y >= qrcode->dimension) return 0; // quiet
-    // TODO: Bitfield instead of byte array
     int offset = y * qrcode->dimension + x;
     if (qrcode->buffer == NULL || offset < 0 || (offset >> 3) >= qrcode->bufferSize) return -1;
     return qrcode->buffer[offset >> 3] & (1 << (7 - (offset & 7))) ? 1 : 0;
@@ -318,7 +321,6 @@ int QrCodeModuleGet(qrcode_t *qrcode, int x, int y)
 static void QrCodeModuleSet(qrcode_t *qrcode, int x, int y, int value)
 {
     if (x < 0 || y < 0 || x >= qrcode->dimension || y >= qrcode->dimension) return; // quiet
-    // TODO: Bitfield instead of byte array
     int offset = y * qrcode->dimension + x;
     if (qrcode->buffer == NULL || offset < 0 || (offset >> 3) >= qrcode->bufferSize) return;
     uint8_t mask = (1 << (7 - (offset & 7)));
@@ -499,8 +501,6 @@ static uint32_t QrCodeCalcVersionInfo(qrcode_t *qrcode, int version)
     // Calculate 12-bit error-correction (18,6) Golay code
     int golay = version;
     for (int i = 0; i < 12; i++) golay = (golay << 1) ^ ((golay >> 11) * 0x1f25);
-    long bits = (long)version << 12 | golay;
-
     uint32_t value = ((uint32_t)version << 12) | golay;
     return value;
 }
@@ -517,8 +517,8 @@ static bool QrCodeCalculateMask(qrcode_mask_pattern_t maskPattern, int j, int i)
         case QRCODE_MASK_101: return ((i * j) & 1) + ((i * j) % 3) == 0;
         case QRCODE_MASK_110: return ((((i * j) & 1) + ((i * j) % 3)) & 1) == 0;
         case QRCODE_MASK_111: return ((((i * j) % 3) + ((i + j) & 1)) & 1) == 0;
+        default: return false;
     }
-    return false;
 }
 
 static void QrCodeApplyMask(qrcode_t* qrcode, qrcode_mask_pattern_t maskPattern)
@@ -734,7 +734,7 @@ int QrCodeEvaluatePenalty(qrcode_t *qrcode)
 {
     // Note: Penalty calculated over entire code (although format information is not yet written)
     const int scoreN1 = 3;
-    const int scoreN2 = 3;
+    //const int scoreN2 = 3;
     const int scoreN3 = 40;
     const int scoreN4 = 10;
     int totalPenalty = 0;
@@ -774,15 +774,11 @@ int QrCodeEvaluatePenalty(qrcode_t *qrcode)
                         {
                             // Proportion:             1 : 1 : 3 : 1 : 1
                             // Modulo relative index: +3, +4,  0, +1, +2
-
-                            // Check for identical proportions
-                            if (runs[(runsCount + 3) % 5] == runs[(runsCount + 4) % 5] == runs[(runsCount + 1) % 5] == runs[(runsCount + 2) % 5])
+                            // Check for proportions
+                            int v = runs[(runsCount + 1) % 5];
+                            if (runs[runsCount % 5] == 3 * v && v == runs[(runsCount + 2) % 5] && v == runs[(runsCount + 3) % 5] && v == runs[(runsCount + 4) % 5])
                             {
-                                // Check for 3* proportion
-                                if (runs[runsCount % 5] == 3 * runs[(runsCount + 1) % 5])
-                                {
-                                    totalPenalty += scoreN3;
-                                }
+                                totalPenalty += scoreN3;
                             }
                         }
                     }
@@ -795,7 +791,7 @@ int QrCodeEvaluatePenalty(qrcode_t *qrcode)
 
     // Feature 2: Block of identical modules: m * n size, penalty points: N2 * (m-1) * (n-1)
  // TODO: Calculate feature 2 penalty. (Clear up ambiguity over "block" and counting the same "block" overlapped multiple times)
-    ;
+    ; // scoreN2
 
     // Feature 4: Dark module percentage: 50 +|- (5*k) to 50 +|- (5*(k+1)), penalty points: N4 * k
     {

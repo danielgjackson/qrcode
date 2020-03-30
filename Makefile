@@ -2,7 +2,7 @@
 
 BIN_NAME = qrcode
 CC = gcc
-CFLAGS = -O3 -Wall
+CFLAGS = -O3 -Wall -Wstrict-overflow=0
 LIBS = 
 
 SRC = $(wildcard *.c)
