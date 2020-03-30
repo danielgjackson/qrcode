@@ -15,50 +15,65 @@
 #include "qrcode.h"
 
 typedef enum {
-    OUTPUT_TEXT_WIDE,
+    OUTPUT_TEXT_LARGE,
     OUTPUT_TEXT_NARROW,
+    OUTPUT_TEXT_COMPACT,
 //    OUTPUT_IMAGE_BITMAP,
 } output_mode_t;
 
-/*
-// Endian-independent short/long read/write
-static void fputshort(uint16_t v, FILE *fp) { fputc((uint8_t)((v >> 0) & 0xff), fp); fputc((uint8_t)((v >> 8) & 0xff), fp); }
-static void fputlong(uint32_t v, FILE *fp) { fputc((uint8_t)((v >> 0) & 0xff), fp); fputc((uint8_t)((v >> 8) & 0xff), fp); fputc((uint8_t)((v >> 16) & 0xff), fp); fputc((uint8_t)((v >> 24) & 0xff), fp); }
-
-static void OutputQrCodeTextWide(FILE *fp, uint8_t *bitmap, size_t length, int scale, int height, bool invert)
+void OutputQrCodeTextLarge(qrcode_t* qrcode, FILE* fp, int quiet, bool invert)
 {
-    for (int repeat = 0; repeat < height; repeat++)
+    for (int y = -quiet; y < qrcode->dimension + quiet; y++)
     {
-        for (int i = 0; i < scale * length; i++)
+        for (int x = -quiet; x < qrcode->dimension + quiet; x++)
         {
-            bool bit = BARCODE_BIT(bitmap, i / scale) ^ invert;
-            fprintf(fp, "%s", bit ? "█" : " ");	// \u{2588} block
+            int bit = QrCodeModuleGet(qrcode, x, y) ^ (invert ? 0x1 : 0x0);
+            if (bit != 0) fprintf(fp, "██"); // '\u{2588}' block
+            else fprintf(fp, "  ");          // '\u{0020}' space
         }
         fprintf(fp, "\n");
     }
 }
 
-static void OutputQrCodeTextNarrow(FILE *fp, uint8_t *bitmap, size_t length, int scale, int height, bool invert)
+void OutputQrCodeTextNarrow(qrcode_t* qrcode, FILE* fp, int quiet, bool invert)
 {
-    for (int repeat = 0; repeat < height; repeat++)
+    for (int y = -quiet; y < qrcode->dimension + quiet; y++)
     {
-        for (int i = 0; i < scale * length; i += 2)
+        for (int x = -quiet; x < qrcode->dimension + quiet; x++)
         {
-            bool bit0 = BARCODE_BIT(bitmap, i / scale);
-            bool bit1 = ((i + 1) / scale) < length ? BARCODE_BIT(bitmap, (i + 1) / scale) : !invert;
-            int value = ((bit0 ? 2 : 0) + (bit1 ? 1 : 0)) ^ (invert ? 0x3 : 0x0);
+            int bit = QrCodeModuleGet(qrcode, x, y) ^ (invert ? 0x1 : 0x0);
+            if (bit != 0) fprintf(fp, "█");  // '\u{2588}' block
+            else fprintf(fp, " ");           // '\u{0020}' space
+        }
+        fprintf(fp, "\n");
+    }
+}
+
+void OutputQrCodeTextCompact(qrcode_t* qrcode, FILE* fp, int quiet, bool invert)
+{
+    for (int y = -quiet; y < qrcode->dimension + quiet; y += 2)
+    {
+        for (int x = -quiet; x < qrcode->dimension + quiet; x++)
+        {
+            int bitU = QrCodeModuleGet(qrcode, x, y);
+            int bitL = (y + 1 < qrcode->dimension + quiet) ? QrCodeModuleGet(qrcode, x, y + 1) : (invert ? 0 : 1);
+            int value = ((bitL ? 2 : 0) + (bitU ? 1 : 0)) ^ (invert ? 0x3 : 0x0);
             switch (value)
             {
-                case 0: fprintf(fp, " "); break; // '\u{0020}' space
-                case 1: fprintf(fp, "▐"); break; // '\u{2590}' right
-                case 2: fprintf(fp, "▌"); break; // '\u{258C}' left
-                case 3: fprintf(fp, "█"); break; // '\u{2588}' block
+            case 0: fprintf(fp, " "); break; // '\u{0020}' space
+            case 1: fprintf(fp, "▀"); break; // '\u{2580}' upper half block
+            case 2: fprintf(fp, "▄"); break; // '\u{2584}' lower half block
+            case 3: fprintf(fp, "█"); break; // '\u{2588}' block
             }
         }
         fprintf(fp, "\n");
     }
 }
 
+/*
+// Endian-independent short/long read/write
+static void fputshort(uint16_t v, FILE *fp) { fputc((uint8_t)((v >> 0) & 0xff), fp); fputc((uint8_t)((v >> 8) & 0xff), fp); }
+static void fputlong(uint32_t v, FILE *fp) { fputc((uint8_t)((v >> 0) & 0xff), fp); fputc((uint8_t)((v >> 8) & 0xff), fp); fputc((uint8_t)((v >> 16) & 0xff), fp); fputc((uint8_t)((v >> 24) & 0xff), fp); }
 
 static void OutputQrCodeImageBitmap(FILE *fp, uint8_t *bitmap, size_t length, int scale, int height, bool invert)
 {
@@ -116,7 +131,7 @@ int main(int argc, char *argv[])
     bool invert = false;
     int quiet = QRCODE_QUIET_STANDARD;
     bool mayUppercase = false;
-    output_mode_t outputMode = OUTPUT_TEXT_NARROW;
+    output_mode_t outputMode = OUTPUT_TEXT_COMPACT;
     qrcode_error_correction_level_t errorCorrectionLevel = QRCODE_ECL_M;
     //int scale = 1;
     
@@ -136,8 +151,9 @@ int main(int argc, char *argv[])
             ofp = fopen(argv[++i], "wb");
             if (ofp == NULL) { fprintf(stderr, "ERROR: Unable to open output filename: %s\n", argv[i]); return -1; }
         }
-        else if (!strcmp(argv[i], "--output:wide")) { outputMode = OUTPUT_TEXT_WIDE; }
+        else if (!strcmp(argv[i], "--output:large")) { outputMode = OUTPUT_TEXT_LARGE; }
         else if (!strcmp(argv[i], "--output:narrow")) { outputMode = OUTPUT_TEXT_NARROW; }
+        else if (!strcmp(argv[i], "--output:compact")) { outputMode = OUTPUT_TEXT_COMPACT; }
         //else if (!strcmp(argv[i], "--output:bmp")) { outputMode = OUTPUT_IMAGE_BITMAP; }
         else if (argv[i][0] == '-')
         {
@@ -165,43 +181,45 @@ int main(int argc, char *argv[])
 
     if (help)
     {
-        fprintf(stderr, "USAGE: qrcode [--ecl:<l|m|q|h>] [--uppercase] [--invert] [--output:<wide|narrow>] [--quiet 4] [--file filename] <value>\n"); 
+        fprintf(stderr, "USAGE: qrcode [--ecl:<l|m|q|h>] [--uppercase] [--invert] [--output:<large|narrow|compact>] [--quiet 4] [--file filename] <value>\n"); 
         return -1;
     }
 
-
     // Clean QR Code object
     qrcode_t qrcode;
-    QrCodeInit(&qrcode, QRCODE_VERSION_MAX, errorCorrectionLevel, quiet);
+    QrCodeInit(&qrcode, QRCODE_VERSION_MAX, errorCorrectionLevel);
 
     // Add one text segment
     qrcode_segment_t segment;
     QrCodeSegmentAppend(&qrcode, &segment, QRCODE_MODE_INDICATOR_AUTOMATIC, value, QRCODE_TEXT_LENGTH, mayUppercase);
 
     // Gets required buffer sizes
+    size_t bufferSize = 0;
     size_t scratchBufferSize = 0;
-    size_t bufferSize = QrCodeBufferSize(&qrcode, &scratchBufferSize);
+    int dimension = QrCodeSize(&qrcode, &bufferSize, &scratchBufferSize);
 
     // Generates the QR Code as a bitmap (0=light, 1=dark) using the specified buffer.
     uint8_t *buffer = malloc(bufferSize);
     uint8_t *scratchBuffer = malloc(scratchBufferSize);
     bool result = QrCodeGenerate(&qrcode, buffer, scratchBuffer);
-
-    printf("QRCODE: %s\n", result ? "success" : "fail");
-
-#ifdef _WIN32
-    if (outputMode == OUTPUT_TEXT_WIDE || outputMode == OUTPUT_TEXT_NARROW) SetConsoleOutputCP(CP_UTF8);
-#endif
-
-#if 1
-    switch (outputMode)
+    if (result)
     {
-        case OUTPUT_TEXT_WIDE: QrCodePrintLarge(&qrcode, stdout, true); break;
-        case OUTPUT_TEXT_NARROW: QrCodePrintCompact(&qrcode, stdout, true); break;
-        //case OUTPUT_IMAGE_BITMAP: OutputQrCodeImageBitmap(ofp, bitmap, length, scale, height, invert); break;
-        default: fprintf(ofp, "<error>"); break;
-    }
+#ifdef _WIN32
+        if (outputMode == OUTPUT_TEXT_LARGE || outputMode == OUTPUT_TEXT_NARROW || outputMode == OUTPUT_TEXT_COMPACT) SetConsoleOutputCP(CP_UTF8);
 #endif
+        switch (outputMode)
+        {
+            case OUTPUT_TEXT_LARGE: OutputQrCodeTextLarge(&qrcode, stdout, quiet, true); break;
+            case OUTPUT_TEXT_NARROW: OutputQrCodeTextNarrow(&qrcode, stdout, quiet, true); break;
+            case OUTPUT_TEXT_COMPACT: OutputQrCodeTextCompact(&qrcode, stdout, quiet, true); break;
+            //case OUTPUT_IMAGE_BITMAP: OutputQrCodeImageBitmap(ofp, bitmap, length, scale, height, invert); break;
+            default: fprintf(ofp, "<error>"); break;
+        }
+    }
+    else
+    {
+        fprintf(stderr, "ERROR: Could not generate QR Code (too much data).\n");
+    }
 
     if (ofp != stdout) fclose(ofp);
     return 0;
