@@ -18,7 +18,7 @@ typedef enum {
     OUTPUT_TEXT_LARGE,
     OUTPUT_TEXT_NARROW,
     OUTPUT_TEXT_COMPACT,
-//    OUTPUT_IMAGE_BITMAP,
+    OUTPUT_IMAGE_BITMAP,
 } output_mode_t;
 
 void OutputQrCodeTextLarge(qrcode_t* qrcode, FILE* fp, int quiet, bool invert)
@@ -70,17 +70,16 @@ void OutputQrCodeTextCompact(qrcode_t* qrcode, FILE* fp, int quiet, bool invert)
     }
 }
 
-/*
 // Endian-independent short/long read/write
 static void fputshort(uint16_t v, FILE *fp) { fputc((uint8_t)((v >> 0) & 0xff), fp); fputc((uint8_t)((v >> 8) & 0xff), fp); }
 static void fputlong(uint32_t v, FILE *fp) { fputc((uint8_t)((v >> 0) & 0xff), fp); fputc((uint8_t)((v >> 8) & 0xff), fp); fputc((uint8_t)((v >> 16) & 0xff), fp); fputc((uint8_t)((v >> 24) & 0xff), fp); }
-
-static void OutputQrCodeImageBitmap(FILE *fp, uint8_t *bitmap, size_t length, int scale, int height, bool invert)
+static void OutputQrCodeImageBitmap(qrcode_t* qrcode, FILE *fp, int dimension, int quiet, int scale, bool invert)
 {
     const int BMP_HEADERSIZE = 54;
     const int BMP_PAL_SIZE = 2 * 4;
 
-    int width = length * scale;
+    int width = (2 * quiet + dimension) * scale;
+    int height = (2 * quiet + dimension) * scale;
     int span = ((width + 31) / 32) * 4;
     int bufferSize = span * height;
 
@@ -91,7 +90,7 @@ static void OutputQrCodeImageBitmap(FILE *fp, uint8_t *bitmap, size_t length, in
     fputlong(BMP_HEADERSIZE + BMP_PAL_SIZE, fp); // bfOffBits
     fputlong(40, fp);              // biSize
     fputlong(width, fp);           // biWidth
-    fputlong(height, fp);          // biHeight (negative for top-down)
+    fputlong(-height, fp);         // biHeight (negative for top-down)
     fputshort(1, fp);              // biPlanes
     fputshort(1, fp);              // biBitCount
     fputlong(0, fp);               // biCompression
@@ -100,10 +99,12 @@ static void OutputQrCodeImageBitmap(FILE *fp, uint8_t *bitmap, size_t length, in
     fputlong(0, fp);               // biYPelsPerMeter 3780
     fputlong(0, fp);               // biClrUsed
     fputlong(0, fp);               // biClrImportant
-    // Palette Entry 0 - white
-    fputc(0xff, fp); fputc(0xff, fp); fputc(0xff, fp); fputc(0x00, fp);
-    // Palette Entry 1 - black
-    fputc(0x00, fp); fputc(0x00, fp); fputc(0x00, fp); fputc(0x00, fp);
+
+    // Invert will invert the bit values in the file, but the palette will be swapped so will be invisible in most uses
+    // Palette Entry 0 - white (unless inverted)
+    fputc(invert ? 0x00 : 0xff, fp); fputc(invert ? 0x00 : 0xff, fp); fputc(invert ? 0x00 : 0xff, fp); fputc(0x00, fp);
+    // Palette Entry 1 - black (unless inverted)
+    fputc(invert ? 0xff : 0x00, fp); fputc(invert ? 0xff : 0x00, fp); fputc(invert ? 0xff : 0x00, fp); fputc(0x00, fp);
     
     // Bitmap data
     for (int y = 0; y < height; y++)
@@ -114,14 +115,15 @@ static void OutputQrCodeImageBitmap(FILE *fp, uint8_t *bitmap, size_t length, in
             for (int b = 0; b < 8; b++)
             {
                 int i = (h * 8 + b) / scale;
-                bool bit = (i < length) ? BARCODE_BIT(bitmap, i) ^ invert : 0;
+                int j = y / scale;
+                bool bit = (i < (2 * quiet + dimension)) ? QrCodeModuleGet(qrcode, i - quiet, j - quiet) ^ invert : 0;
                 v |= bit << (7 - b);
             }
             fprintf(fp, "%c", v);
         }
     }
 }
-*/
+
 
 int main(int argc, char *argv[])
 {
@@ -133,12 +135,12 @@ int main(int argc, char *argv[])
     bool mayUppercase = false;
     output_mode_t outputMode = OUTPUT_TEXT_COMPACT;
     qrcode_error_correction_level_t errorCorrectionLevel = QRCODE_ECL_M;
-    //int scale = 1;
+    int scale = 1;
     
     for (int i = 1; i < argc; i++)
     {
         if (!strcmp(argv[i], "--help")) { help = true; }
-        //else if (!strcmp(argv[i], "--scale")) { scale = atoi(argv[++i]); }
+        else if (!strcmp(argv[i], "--scale")) { scale = atoi(argv[++i]); }
         else if (!strcmp(argv[i], "--ecl:l")) { errorCorrectionLevel = QRCODE_ECL_L; }
         else if (!strcmp(argv[i], "--ecl:m")) { errorCorrectionLevel = QRCODE_ECL_M; }
         else if (!strcmp(argv[i], "--ecl:q")) { errorCorrectionLevel = QRCODE_ECL_Q; }
@@ -154,7 +156,7 @@ int main(int argc, char *argv[])
         else if (!strcmp(argv[i], "--output:large")) { outputMode = OUTPUT_TEXT_LARGE; }
         else if (!strcmp(argv[i], "--output:narrow")) { outputMode = OUTPUT_TEXT_NARROW; }
         else if (!strcmp(argv[i], "--output:compact")) { outputMode = OUTPUT_TEXT_COMPACT; }
-        //else if (!strcmp(argv[i], "--output:bmp")) { outputMode = OUTPUT_IMAGE_BITMAP; }
+        else if (!strcmp(argv[i], "--output:bmp")) { outputMode = OUTPUT_IMAGE_BITMAP; }
         else if (argv[i][0] == '-')
         {
             fprintf(stderr, "ERROR: Unrecognized parameter: %s\n", argv[i]); 
@@ -181,7 +183,7 @@ int main(int argc, char *argv[])
 
     if (help)
     {
-        fprintf(stderr, "USAGE: qrcode [--ecl:<l|m|q|h>] [--uppercase] [--invert] [--output:<large|narrow|compact>] [--quiet 4] [--file filename] <value>\n"); 
+        fprintf(stderr, "USAGE: qrcode [--ecl:<l|m|q|h>] [--uppercase] [--invert] [[--output:<large|narrow|compact>] | --output:bmp --scale 1] [--quiet 4] [--file filename] <value>\n"); 
         return -1;
     }
 
@@ -212,7 +214,7 @@ int main(int argc, char *argv[])
             case OUTPUT_TEXT_LARGE: OutputQrCodeTextLarge(&qrcode, stdout, quiet, true); break;
             case OUTPUT_TEXT_NARROW: OutputQrCodeTextNarrow(&qrcode, stdout, quiet, true); break;
             case OUTPUT_TEXT_COMPACT: OutputQrCodeTextCompact(&qrcode, stdout, quiet, true); break;
-            //case OUTPUT_IMAGE_BITMAP: OutputQrCodeImageBitmap(ofp, bitmap, length, scale, height, invert); break;
+            case OUTPUT_IMAGE_BITMAP: OutputQrCodeImageBitmap(&qrcode, ofp, dimension, quiet, scale, invert); break;
             default: fprintf(ofp, "<error>"); break;
         }
     }
