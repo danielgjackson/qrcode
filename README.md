@@ -20,7 +20,8 @@ Add a text segment to the QR Code object, where `mode` is typically `QRCODE_MODE
 void QrCodeSegmentAppend(qrcode_t *qrcode, qrcode_segment_t *segment, qrcode_mode_indicator_t mode, const char *text, size_t charCount, bool mayUppercase);
 ```
 
-Get the decided dimension of the code (0=error) and, if dynamic memory is used, the minimum buffer sizes for the code and scratch area (only used during generation itself), pass `NULL` if using fixed-size buffers.
+Get the decided dimension of the code (0=error) and, if dynamic memory is used, the minimum buffer sizes for the code and scratch area (only used during generation itself). 
+If you want to use fixed-size buffers, you can pass `NULL` to ignore the parameters and the maximum buffer sizes can be known at compile time using: `QRCODE_BUFFER_SIZE(maxVersion)` and `QRCODE_SCRATCH_BUFFER_SIZE(maxVersion)`.
 
 ```c
 int QrCodeSize(qrcode_t *qrcode, size_t *bufferSize, size_t *scratchBufferSize);
