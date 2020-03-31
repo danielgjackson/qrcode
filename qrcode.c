@@ -903,12 +903,6 @@ bool QrCodeGenerate(qrcode_t *qrcode, uint8_t *buffer, uint8_t *scratchBuffer)
             QrCodeDrawAlignment(qrcode, h, v);
         }
     }
-    // Version info (V7+) (additional 36 modules, total 67 for format+version)
-    if (qrcode->version >= 7)
-    {
-        uint32_t versionInfo = QrCodeCalcVersionInfo(qrcode, qrcode->version);
-        QrCodeDrawVersionInfo(qrcode, versionInfo);
-    }
 
 
     // Write the codewords interleaved between blocks
@@ -977,6 +971,13 @@ bool QrCodeGenerate(qrcode_t *qrcode, uint8_t *buffer, uint8_t *scratchBuffer)
 
     // Use selected mask
     QrCodeApplyMask(qrcode, qrcode->maskPattern);
+
+    // Version info (V7+) (additional 36 modules, total 67 for format+version)
+    if (qrcode->version >= 7)
+    {
+        uint32_t versionInfo = QrCodeCalcVersionInfo(qrcode, qrcode->version);
+        QrCodeDrawVersionInfo(qrcode, versionInfo);
+    }
 
     // Write format information
     uint16_t formatInfo = QrCodeCalcFormatInfo(qrcode, qrcode->errorCorrectionLevel, qrcode->maskPattern);
