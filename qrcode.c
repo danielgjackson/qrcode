@@ -982,7 +982,7 @@ bool QrCodeGenerate(qrcode_t *qrcode, uint8_t *buffer, uint8_t *scratchBuffer)
     // Write format information
     uint16_t formatInfo = QrCodeCalcFormatInfo(qrcode, qrcode->errorCorrectionLevel, qrcode->maskPattern);
     QrCodeDrawFormatInfo(qrcode, formatInfo);
-    
+
     return true;
 }
 

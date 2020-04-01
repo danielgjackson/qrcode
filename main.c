@@ -135,6 +135,9 @@ int main(int argc, char *argv[])
     bool mayUppercase = false;
     output_mode_t outputMode = OUTPUT_TEXT_COMPACT;
     qrcode_error_correction_level_t errorCorrectionLevel = QRCODE_ECL_M;
+    qrcode_mask_pattern_t maskPattern = QRCODE_MASK_AUTO;
+    int version = QRCODE_VERSION_AUTO;
+    bool optimizeEcc = true;
     int scale = 1;
     
     for (int i = 1; i < argc; i++)
@@ -145,6 +148,9 @@ int main(int argc, char *argv[])
         else if (!strcmp(argv[i], "--ecl:m")) { errorCorrectionLevel = QRCODE_ECL_M; }
         else if (!strcmp(argv[i], "--ecl:q")) { errorCorrectionLevel = QRCODE_ECL_Q; }
         else if (!strcmp(argv[i], "--ecl:h")) { errorCorrectionLevel = QRCODE_ECL_H; }
+        else if (!strcmp(argv[i], "--fixecl")) { optimizeEcc = false; }
+        else if (!strcmp(argv[i], "--version")) { version = atoi(argv[++i]); }
+        else if (!strcmp(argv[i], "--mask")) { maskPattern = atoi(argv[++i]); }
         else if (!strcmp(argv[i], "--quiet")) { quiet = atoi(argv[++i]); }
         else if (!strcmp(argv[i], "--invert")) { invert = !invert; }
         else if (!strcmp(argv[i], "--uppercase")) { mayUppercase = true; }
@@ -190,6 +196,9 @@ int main(int argc, char *argv[])
     // Clean QR Code object
     qrcode_t qrcode;
     QrCodeInit(&qrcode, QRCODE_VERSION_MAX, errorCorrectionLevel);
+    qrcode.maskPattern = maskPattern;
+    qrcode.optimizeEcc = optimizeEcc;
+    qrcode.version = version;
 
     // Add one text segment
     qrcode_segment_t segment;
