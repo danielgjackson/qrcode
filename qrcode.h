@@ -22,7 +22,7 @@ extern "C" {
 #define QRCODE_BUFFER_SIZE_BYTES(_bits) (((_bits) + 7) >> 3)
 
 // Total data modules (raw: data, ecc and remainder) minus function pattern and format/version = data capacity in bits
-#define QRCODE_TOTAL_CAPACITY(_v) (((16 * (_v) + 128) * (_v)) + 64 - ((_v) < 2 ? 0 : (25 * ((_v) / 7 + 2) - 10) * ((_v) / 7 + 2) - 55) - ((_v) < 7 ? 0 : 36))
+#define QRCODE_TOTAL_CAPACITY(_v) (((16 * (size_t)(_v) + 128) * (size_t)(_v)) + 64 - ((size_t)(_v) < 2 ? 0 : (25 * ((size_t)(_v) / 7 + 2) - 10) * (size_t)((_v) / 7 + 2) - 55) - ((size_t)(_v) < 7 ? 0 : 36))
 #define QRCODE_SCRATCH_BUFFER_SIZE(_v) QRCODE_BUFFER_SIZE_BYTES(QRCODE_TOTAL_CAPACITY(_v))
 
 #define QRCODE_BUFFER_SIZE(_v) QRCODE_BUFFER_SIZE_BYTES(QRCODE_VERSION_TO_DIMENSION(_v) * QRCODE_VERSION_TO_DIMENSION(_v))

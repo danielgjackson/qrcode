@@ -9,3 +9,5 @@
 /qrcode
 /*.bmp
 /_local
+/*.svg
+/test.html

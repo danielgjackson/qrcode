@@ -19,6 +19,7 @@ typedef enum {
     OUTPUT_TEXT_NARROW,
     OUTPUT_TEXT_COMPACT,
     OUTPUT_IMAGE_BITMAP,
+    OUTPUT_IMAGE_SVG,
 } output_mode_t;
 
 void OutputQrCodeTextLarge(qrcode_t* qrcode, FILE* fp, int quiet, bool invert)
@@ -124,6 +125,26 @@ static void OutputQrCodeImageBitmap(qrcode_t* qrcode, FILE *fp, int dimension, i
     }
 }
 
+static void OutputQrCodeImageSvg(qrcode_t* qrcode, FILE *fp, int dimension, int quiet, bool invert)
+{
+    int width = (2 * quiet + dimension);
+    int height = (2 * quiet + dimension);
+    fprintf(fp, "<?xml version=\"1.0\"?>\n");
+    fprintf(fp, "<svg xmlns=\"http://www.w3.org/2000/svg\" viewport-fill=\"white\" fill=\"currentColor\" viewBox=\"0 0 %d %d\" shape-rendering=\"crispEdges\">\n", width, height);
+    //fprintf(fp, "<desc>%s</desc>\n", data);
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            bool bit = QrCodeModuleGet(qrcode, x - quiet, y - quiet) ^ invert;
+            if (bit)
+            {
+                fprintf(fp, "<rect x=\"%d\" y=\"%d\" width=\"1\" height=\"1\" />\n", x, y);
+            }
+        }
+    }
+    fprintf(fp, "</svg>\n");
+}
 
 int main(int argc, char *argv[])
 {
@@ -163,6 +184,7 @@ int main(int argc, char *argv[])
         else if (!strcmp(argv[i], "--output:narrow")) { outputMode = OUTPUT_TEXT_NARROW; }
         else if (!strcmp(argv[i], "--output:compact")) { outputMode = OUTPUT_TEXT_COMPACT; }
         else if (!strcmp(argv[i], "--output:bmp")) { outputMode = OUTPUT_IMAGE_BITMAP; }
+        else if (!strcmp(argv[i], "--output:svg")) { outputMode = OUTPUT_IMAGE_SVG; }
         else if (argv[i][0] == '-')
         {
             fprintf(stderr, "ERROR: Unrecognized parameter: %s\n", argv[i]); 
@@ -189,7 +211,7 @@ int main(int argc, char *argv[])
 
     if (help)
     {
-        fprintf(stderr, "USAGE: qrcode [--ecl:<l|m|q|h>] [--uppercase] [--invert] [[--output:<large|narrow|compact>] | --output:bmp --scale 1] [--quiet 4] [--file filename] <value>\n"); 
+        fprintf(stderr, "USAGE: qrcode [--ecl:<l|m|q|h>] [--uppercase] [--invert] [[--output:<large|narrow|compact|svg>] | --output:bmp --scale 1] [--quiet 4] [--file filename] <value>\n"); 
         return -1;
     }
 
@@ -220,10 +242,11 @@ int main(int argc, char *argv[])
 #endif
         switch (outputMode)
         {
-            case OUTPUT_TEXT_LARGE: OutputQrCodeTextLarge(&qrcode, stdout, quiet, true); break;
-            case OUTPUT_TEXT_NARROW: OutputQrCodeTextNarrow(&qrcode, stdout, quiet, true); break;
-            case OUTPUT_TEXT_COMPACT: OutputQrCodeTextCompact(&qrcode, stdout, quiet, true); break;
+            case OUTPUT_TEXT_LARGE: OutputQrCodeTextLarge(&qrcode, ofp, quiet, true); break;
+            case OUTPUT_TEXT_NARROW: OutputQrCodeTextNarrow(&qrcode, ofp, quiet, true); break;
+            case OUTPUT_TEXT_COMPACT: OutputQrCodeTextCompact(&qrcode, ofp, quiet, true); break;
             case OUTPUT_IMAGE_BITMAP: OutputQrCodeImageBitmap(&qrcode, ofp, dimension, quiet, scale, invert); break;
+            case OUTPUT_IMAGE_SVG: OutputQrCodeImageSvg(&qrcode, ofp, dimension, quiet, invert); break;
             default: fprintf(ofp, "<error>"); break;
         }
     }
