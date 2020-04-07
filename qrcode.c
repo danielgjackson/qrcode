@@ -327,54 +327,40 @@ static void QrCodeModuleSet(qrcode_t *qrcode, int x, int y, int value)
     qrcode->buffer[offset >> 3] = (qrcode->buffer[offset >> 3] & ~mask) | (value ? mask : 0);
 }
 
-typedef enum
-{
-    // Function patterns
-    QRCODE_PART_ALIGNMENT = -4, // Alignment pattern(s)
-    QRCODE_PART_TIMING = -3,    // Timing pattern
-    QRCODE_PART_SEPARATOR = -2, // Separator around finder position detection patterns
-    QRCODE_PART_FINDER = -1,    // Position detection pattern
-    // Outside
-    QRCODE_PART_QUIET = 0,      // Quiet margin outside of code
-    // Encoding region
-    QRCODE_PART_CONTENT = 1,    // Data and error-correction codewords
-    QRCODE_PART_FORMAT = 2,     // Format Info
-    QRCODE_PART_VERSION = 3,    // Version Info
-} qrcode_part_t;
 
-// (internal) Determines which part a given module coordinate belongs to..
-static qrcode_part_t QrCodeIdentifyModule(qrcode_t* qrcode, int x, int y)
+// Determines which part a given module coordinate belongs to..
+qrcode_part_t QrCodeIdentifyModule(qrcode_t* qrcode, int x, int y)
 {
     // Quiet zone
-    if (x < 0 || y < 0 || x >= qrcode->dimension || y >= qrcode->dimension) return QRCODE_PART_QUIET;     // Outside
+    if (x < 0 || y < 0 || x >= qrcode->dimension || y >= qrcode->dimension) return QRCODE_PART_QUIET;                           // Outside
 
     // --- Function patterns ---
     // Separator
-    if (x == QRCODE_FINDER_SIZE && y <= QRCODE_FINDER_SIZE) return QRCODE_PART_SEPARATOR;                       // Right of top-left
-    if (y == QRCODE_FINDER_SIZE && x <= QRCODE_FINDER_SIZE) return QRCODE_PART_SEPARATOR;                       // Bottom of top-left
-    if (x == qrcode->dimension - 1 - QRCODE_FINDER_SIZE && y <= QRCODE_FINDER_SIZE) return QRCODE_PART_SEPARATOR;    // Left of top-right
-    if (y == QRCODE_FINDER_SIZE && x >= qrcode->dimension - 1 - QRCODE_FINDER_SIZE) return QRCODE_PART_SEPARATOR;    // Bottom of top-right
-    if (y == qrcode->dimension - 1 - QRCODE_FINDER_SIZE && x <= QRCODE_FINDER_SIZE) return QRCODE_PART_SEPARATOR;    // Top of bottom-left
-    if (x == QRCODE_FINDER_SIZE && y >= qrcode->dimension - 1 - QRCODE_FINDER_SIZE) return QRCODE_PART_SEPARATOR;    // Right of bottom-left
+    if (x == QRCODE_FINDER_SIZE && y <= QRCODE_FINDER_SIZE) return QRCODE_PART_SEPARATOR;                                       // Right of top-left
+    if (y == QRCODE_FINDER_SIZE && x <= QRCODE_FINDER_SIZE) return QRCODE_PART_SEPARATOR;                                       // Bottom of top-left
+    if (x == qrcode->dimension - 1 - QRCODE_FINDER_SIZE && y <= QRCODE_FINDER_SIZE) return QRCODE_PART_SEPARATOR;               // Left of top-right
+    if (y == QRCODE_FINDER_SIZE && x >= qrcode->dimension - 1 - QRCODE_FINDER_SIZE) return QRCODE_PART_SEPARATOR;               // Bottom of top-right
+    if (y == qrcode->dimension - 1 - QRCODE_FINDER_SIZE && x <= QRCODE_FINDER_SIZE) return QRCODE_PART_SEPARATOR;               // Top of bottom-left
+    if (x == QRCODE_FINDER_SIZE && y >= qrcode->dimension - 1 - QRCODE_FINDER_SIZE) return QRCODE_PART_SEPARATOR;               // Right of bottom-left
 
     // Finders
-    if (x < QRCODE_FINDER_SIZE && y < QRCODE_FINDER_SIZE) return QRCODE_PART_FINDER;                            // Top-left finder
-    if (x >= qrcode->dimension - QRCODE_FINDER_SIZE && y < QRCODE_FINDER_SIZE) return QRCODE_PART_FINDER;            // Top-right finder
-    if (x < QRCODE_FINDER_SIZE && y >= qrcode->dimension - QRCODE_FINDER_SIZE) return QRCODE_PART_FINDER;            // Bottom-left finder
+    if (x == QRCODE_FINDER_SIZE / 2 && y == QRCODE_FINDER_SIZE / 2) return QRCODE_PART_FINDER_ORIGIN;                           // Top-left finder origin
+    if (x < QRCODE_FINDER_SIZE && y < QRCODE_FINDER_SIZE) return QRCODE_PART_FINDER;                                            // Top-left finder
+    if (x == qrcode->dimension - 1 - QRCODE_FINDER_SIZE / 2 && y == QRCODE_FINDER_SIZE / 2) return QRCODE_PART_FINDER_ORIGIN;   // Top-right finder origin
+    if (x >= qrcode->dimension - QRCODE_FINDER_SIZE && y < QRCODE_FINDER_SIZE) return QRCODE_PART_FINDER;                       // Top-right finder
+    if (x == QRCODE_FINDER_SIZE / 2 && y == qrcode->dimension - 1 - QRCODE_FINDER_SIZE / 2) return QRCODE_PART_FINDER_ORIGIN;   // Bottom-left finder origin
+    if (x < QRCODE_FINDER_SIZE && y >= qrcode->dimension - QRCODE_FINDER_SIZE) return QRCODE_PART_FINDER;                       // Bottom-left finder
 
     // Alignment
     for (int hi = 0, h; (h = QrCodeAlignmentCoordinates(qrcode->version, hi)) > 0; hi++)
     {
-        if (x >= h - QRCODE_ALIGNMENT_RADIUS && x <= h + QRCODE_ALIGNMENT_RADIUS)
+        for (int vi = 0, v; (v = QrCodeAlignmentCoordinates(qrcode->version, vi)) > 0; vi++)
         {
-            for (int vi = 0, v; (v = QrCodeAlignmentCoordinates(qrcode->version, vi)) > 0; vi++)
-            {
-                if (h <= QRCODE_FINDER_SIZE && v <= QRCODE_FINDER_SIZE) continue;                     // Obscured by top-left finder
-                if (h >= qrcode->dimension - 1 - QRCODE_FINDER_SIZE && v <= QRCODE_FINDER_SIZE) continue;  // Obscured by top-right finder
-                if (h <= QRCODE_FINDER_SIZE && v >= qrcode->dimension - 1 - QRCODE_FINDER_SIZE) continue;  // Obscured by bottom-left finder
-                // x >= h - QRCODE_ALIGNMENT_RADIUS && x <= h + QRCODE_ALIGNMENT_RADIUS
-                if (y >= v - QRCODE_ALIGNMENT_RADIUS && y <= v + QRCODE_ALIGNMENT_RADIUS) return QRCODE_PART_ALIGNMENT;
-            }
+            if (h <= QRCODE_FINDER_SIZE && v <= QRCODE_FINDER_SIZE) continue;                                                   // Obscured by top-left finder
+            if (h >= qrcode->dimension - 1 - QRCODE_FINDER_SIZE && v <= QRCODE_FINDER_SIZE) continue;                           // Obscured by top-right finder
+            if (h <= QRCODE_FINDER_SIZE && v >= qrcode->dimension - 1 - QRCODE_FINDER_SIZE) continue;                           // Obscured by bottom-left finder
+            if (x == h && y == v) return QRCODE_PART_ALIGNMENT_ORIGIN;
+            if (x >= h - QRCODE_ALIGNMENT_RADIUS && x <= h + QRCODE_ALIGNMENT_RADIUS && y >= v - QRCODE_ALIGNMENT_RADIUS && y <= v + QRCODE_ALIGNMENT_RADIUS) return QRCODE_PART_ALIGNMENT;
         }
     }
 
@@ -1002,14 +988,16 @@ void QrCodeDebugDump(qrcode_t* qrcode)
 
             switch (part)
             {
-            case QRCODE_PART_QUIET:     s = ".."; break;
-            case QRCODE_PART_CONTENT:   s = "[]"; break;
-            case QRCODE_PART_SEPARATOR: s = "::"; break;
-            case QRCODE_PART_FINDER:    s = "Fi"; break;
-            case QRCODE_PART_FORMAT:    s = "Fo"; break;
-            case QRCODE_PART_VERSION:   s = "Ve"; break;
-            case QRCODE_PART_ALIGNMENT: s = "Al"; break;
-            case QRCODE_PART_TIMING:    s = "Ti"; break;
+            case QRCODE_PART_QUIET:            s = ".."; break;
+            case QRCODE_PART_CONTENT:          s = "[]"; break;
+            case QRCODE_PART_SEPARATOR:        s = "::"; break;
+            case QRCODE_PART_FINDER:           s = "Fi"; break;
+            case QRCODE_PART_FINDER_ORIGIN:    s = "FI"; break;
+            case QRCODE_PART_FORMAT:           s = "Fo"; break;
+            case QRCODE_PART_VERSION:          s = "Ve"; break;
+            case QRCODE_PART_ALIGNMENT:        s = "Al"; break;
+            case QRCODE_PART_ALIGNMENT_ORIGIN: s = "AL"; break;
+            case QRCODE_PART_TIMING:           s = "Ti"; break;
             }
             // Debug double digits
             if (color >= 100)

@@ -132,6 +132,28 @@ bool QrCodeGenerate(qrcode_t *qrcode, uint8_t *buffer, uint8_t *scratchBuffer);
 // Get the module at the given coordinate (0=light, 1=dark)
 int QrCodeModuleGet(qrcode_t* qrcode, int x, int y);
 
+
+
+typedef enum
+{
+    // Function patterns
+    QRCODE_PART_ALIGNMENT_ORIGIN = -6, // Alignment pattern origin
+    QRCODE_PART_ALIGNMENT = -5,        // Alignment pattern(s)
+    QRCODE_PART_TIMING = -4,           // Timing pattern
+    QRCODE_PART_SEPARATOR = -3,        // Separator around finder position detection patterns
+    QRCODE_PART_FINDER_ORIGIN = -2,    // Position detection pattern origin
+    QRCODE_PART_FINDER = -1,           // Position detection pattern
+    // Outside
+    QRCODE_PART_QUIET = 0,             // Quiet margin outside of code
+    // Encoding region
+    QRCODE_PART_CONTENT = 1,           // Data and error-correction codewords
+    QRCODE_PART_FORMAT = 2,            // Format Info
+    QRCODE_PART_VERSION = 3,           // Version Info
+} qrcode_part_t;
+
+// Determines which part a given module coordinate belongs to.
+qrcode_part_t QrCodeIdentifyModule(qrcode_t* qrcode, int x, int y);
+
 #ifdef __cplusplus
 }
 #endif

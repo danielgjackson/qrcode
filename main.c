@@ -127,22 +127,58 @@ static void OutputQrCodeImageBitmap(qrcode_t* qrcode, FILE *fp, int dimension, i
 
 static void OutputQrCodeImageSvg(qrcode_t* qrcode, FILE *fp, int dimension, int quiet, bool invert)
 {
-    int width = (2 * quiet + dimension);
-    int height = (2 * quiet + dimension);
     fprintf(fp, "<?xml version=\"1.0\"?>\n");
-    fprintf(fp, "<svg xmlns=\"http://www.w3.org/2000/svg\" viewport-fill=\"white\" fill=\"currentColor\" viewBox=\"0 0 %d %d\" shape-rendering=\"crispEdges\">\n", width, height);
+    fprintf(fp, "<svg xmlns=\"http://www.w3.org/2000/svg\" viewport-fill=\"white\" fill=\"currentColor\" viewBox=\"-%d.5 -%d.5 %d %d\" shape-rendering=\"crispEdges\">\n", quiet, quiet, 2 * quiet + dimension, 2 * quiet + dimension);
     //fprintf(fp, "<desc>%s</desc>\n", data);
-    for (int y = 0; y < height; y++)
+    fprintf(fp, "<defs>\n");
+
+    // data bit
+    fprintf(fp, "<rect id=\"b\" x=\"-0.5\" y=\"-0.5\" width=\"1\" height=\"1\" rx=\"0\" />\n");
+
+    // finder bit
+    //fprintf(fp, "<rect id=\"f\" x=\"-0.5\" y=\"-0.5\" width=\"1\" height=\"1\" rx=\"0.5\" />\n");
+    fprintf(fp, "<path id=\"f\" d=\"\" />\n");
+    fprintf(fp, "<g id=\"fc\"><rect x=\"-3\" y=\"-3\" width=\"6\" height=\"6\" rx=\"0\" stroke=\"currentColor\" stroke-width=\"1.0\" fill=\"none\" /><rect x=\"-1.5\" y=\"-1.5\" width=\"3\" height=\"3\" rx=\"0\" /></g>\n");
+
+    // alignment bit
+    //fprintf(fp, "<rect id=\"a\" x=\"-0.5\" y=\"-0.5\" width=\"1\" height=\"1\" rx=\"0.5\" />\n");
+    fprintf(fp, "<path id=\"a\" d=\"\" />\n");
+    fprintf(fp, "<g id=\"ac\"><rect x=\"-2\" y=\"-2\" width=\"4\" height=\"4\" rx=\"0\" stroke=\"currentColor\" stroke-width=\"1.0\" fill=\"none\" /><rect x=\"-0.5\" y=\"-0.5\" width=\"1\" height=\"1\" rx=\"0\" /></g>\n");
+
+    fprintf(fp, "</defs>\n");
+
+    for (int y = 0; y < dimension; y++)
     {
-        for (int x = 0; x < width; x++)
+        for (int x = 0; x < dimension; x++)
         {
-            bool bit = QrCodeModuleGet(qrcode, x - quiet, y - quiet) ^ invert;
-            if (bit)
-            {
-                fprintf(fp, "<rect x=\"%d\" y=\"%d\" width=\"1\" height=\"1\" />\n", x, y);
-            }
+            char *type = "b";
+            qrcode_part_t part = QrCodeIdentifyModule(qrcode, x, y);
+
+            // Draw finder/alignment as modules (define to nothing if drawing as whole parts)
+            if (part == QRCODE_PART_FINDER || part == QRCODE_PART_FINDER_ORIGIN) { type = "f"; }
+            else if (part == QRCODE_PART_ALIGNMENT || part == QRCODE_PART_ALIGNMENT_ORIGIN) { type = "a"; }
+
+            bool bit = QrCodeModuleGet(qrcode, x, y) ^ invert;
+            if ((bit & 1) == 0) continue;
+
+            fprintf(fp, "<use x=\"%d\" y=\"%d\" href=\"#%s\" />\n", x, y, type);
         }
     }
+
+    // Draw finder/aligment as whole parts (define to nothing if drawing as modules)
+    for (int y = 0; y < dimension; y++)
+    {
+        for (int x = 0; x < dimension; x++)
+        {
+            char* type = NULL;
+            qrcode_part_t part = QrCodeIdentifyModule(qrcode, x, y);
+            if (part == QRCODE_PART_FINDER_ORIGIN) type = "fc";
+            if (part == QRCODE_PART_ALIGNMENT_ORIGIN) type = "ac";
+            if (type == NULL) continue;
+            fprintf(fp, "<use x=\"%d\" y=\"%d\" href=\"#%s\" />\n", x, y, type);
+        }
+    }
+
     fprintf(fp, "</svg>\n");
 }
 
