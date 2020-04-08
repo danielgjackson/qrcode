@@ -55,3 +55,12 @@ To create a bitmap `.bmp` file:
 ```bash
 qrcode --output:bmp --scale 8 --file hello.bmp "Hello, World!"
 ```
+
+<!--
+Example use to generate a batch of .SVG files, taking the content from the file and naming each a filename-safe version of the content:
+
+```bash
+cat list.txt | while read id; do ./qrcode --output:svg --svg-round 1 --svg-finder-round 1 --svg-point 0.9 --file $(echo "$id" | sed 's/^http\(s\)\{0,1\}:\/\///; s/[^A-Za-z0-9-]/_/g').svg "$id" ; done
+```
+
+-->

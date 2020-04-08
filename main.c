@@ -4,9 +4,11 @@
 #ifdef _WIN32
 #define _CRT_SECURE_NO_WARNINGS // This is an example program only
 #include <windows.h>
+#include <io.h>
+#include <fcntl.h>
 #endif
-#define __STDC_FORMAT_MACROS
-#include <inttypes.h>
+
+//#include <inttypes.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -125,25 +127,43 @@ static void OutputQrCodeImageBitmap(qrcode_t* qrcode, FILE *fp, int dimension, i
     }
 }
 
-static void OutputQrCodeImageSvg(qrcode_t* qrcode, FILE *fp, int dimension, int quiet, bool invert)
+static void OutputQrCodeImageSvg(qrcode_t* qrcode, FILE *fp, int dimension, int quiet, bool invert, double moduleSize, double moduleRound, bool finderPart, double finderRound, bool alignmentPart, double alignmentRound)
 {
     fprintf(fp, "<?xml version=\"1.0\"?>\n");
     fprintf(fp, "<svg xmlns=\"http://www.w3.org/2000/svg\" viewport-fill=\"white\" fill=\"currentColor\" viewBox=\"-%d.5 -%d.5 %d %d\" shape-rendering=\"crispEdges\">\n", quiet, quiet, 2 * quiet + dimension, 2 * quiet + dimension);
     //fprintf(fp, "<desc>%s</desc>\n", data);
     fprintf(fp, "<defs>\n");
 
-    // data bit
-    fprintf(fp, "<rect id=\"b\" x=\"-0.5\" y=\"-0.5\" width=\"1\" height=\"1\" rx=\"0\" />\n");
+    // module data bit
+    fprintf(fp, "<rect id=\"b\" x=\"%f\" y=\"%f\" width=\"%f\" height=\"%f\" rx=\"%f\" />\n", -moduleSize / 2, -moduleSize / 2, moduleSize, moduleSize, 0.5f * moduleRound * moduleSize);
 
-    // finder bit
-    //fprintf(fp, "<rect id=\"f\" x=\"-0.5\" y=\"-0.5\" width=\"1\" height=\"1\" rx=\"0.5\" />\n");
-    fprintf(fp, "<path id=\"f\" d=\"\" />\n");
-    fprintf(fp, "<g id=\"fc\"><rect x=\"-3\" y=\"-3\" width=\"6\" height=\"6\" rx=\"0\" stroke=\"currentColor\" stroke-width=\"1.0\" fill=\"none\" /><rect x=\"-1.5\" y=\"-1.5\" width=\"3\" height=\"3\" rx=\"0\" /></g>\n");
+    // finder
+    if (finderPart)
+    {
+        // Hide finder module, use finder part
+        fprintf(fp, "<path id=\"f\" d=\"\" visibility=\"hidden\" />\n");
+        fprintf(fp, "<g id=\"fc\"><rect x=\"-3\" y=\"-3\" width=\"6\" height=\"6\" rx=\"%f\" stroke=\"currentColor\" stroke-width=\"1\" fill=\"none\" /><rect x=\"-1.5\" y=\"-1.5\" width=\"3\" height=\"3\" rx=\"%f\" /></g>\n", 3.0f * finderRound, 1.5f * finderRound);
+    }
+    else
+    {
+        // Use normal module for finder module, hide finder part
+        fprintf(fp, "<g id=\"f\"><use href=\"#b\" /></g>\n");
+        fprintf(fp, "<path id=\"fc\" d=\"\" visibility=\"hidden\" />\n");
+    }
 
-    // alignment bit
-    //fprintf(fp, "<rect id=\"a\" x=\"-0.5\" y=\"-0.5\" width=\"1\" height=\"1\" rx=\"0.5\" />\n");
-    fprintf(fp, "<path id=\"a\" d=\"\" />\n");
-    fprintf(fp, "<g id=\"ac\"><rect x=\"-2\" y=\"-2\" width=\"4\" height=\"4\" rx=\"0\" stroke=\"currentColor\" stroke-width=\"1.0\" fill=\"none\" /><rect x=\"-0.5\" y=\"-0.5\" width=\"1\" height=\"1\" rx=\"0\" /></g>\n");
+    // alignment
+    if (alignmentPart)
+    {
+        // Hide alignment module, use alignment part
+        fprintf(fp, "<path id=\"a\" d=\"\" visibility=\"hidden\" />\n");
+        fprintf(fp, "<g id=\"ac\"><rect x=\"-2\" y=\"-2\" width=\"4\" height=\"4\" rx=\"%f\" stroke=\"currentColor\" stroke-width=\"1\" fill=\"none\" /><rect x=\"-0.5\" y=\"-0.5\" width=\"1\" height=\"1\" rx=\"%f\" /></g>\n", 2.0f * alignmentRound, 0.5f * alignmentRound);
+    }
+    else
+    {
+        // Use normal module for alignment module, hide alignment part
+        fprintf(fp, "<g id=\"a\"><use href=\"#b\" /></g>\n");
+        fprintf(fp, "<path id=\"ac\" d=\"\" visibility=\"hidden\" />\n");
+    }
 
     fprintf(fp, "</defs>\n");
 
@@ -196,11 +216,18 @@ int main(int argc, char *argv[])
     int version = QRCODE_VERSION_AUTO;
     bool optimizeEcc = true;
     int scale = 1;
+    // SVG details
+    double moduleSize = 1.0f;
+    double moduleRound = 0.0f;
+    bool finderPart = false;
+    double finderRound = 0.0f;
+    bool alignmentPart = false;
+    double alignmentRound = 0.0f;
+
     
     for (int i = 1; i < argc; i++)
     {
         if (!strcmp(argv[i], "--help")) { help = true; }
-        else if (!strcmp(argv[i], "--scale")) { scale = atoi(argv[++i]); }
         else if (!strcmp(argv[i], "--ecl:l")) { errorCorrectionLevel = QRCODE_ECL_L; }
         else if (!strcmp(argv[i], "--ecl:m")) { errorCorrectionLevel = QRCODE_ECL_M; }
         else if (!strcmp(argv[i], "--ecl:q")) { errorCorrectionLevel = QRCODE_ECL_Q; }
@@ -221,6 +248,11 @@ int main(int argc, char *argv[])
         else if (!strcmp(argv[i], "--output:compact")) { outputMode = OUTPUT_TEXT_COMPACT; }
         else if (!strcmp(argv[i], "--output:bmp")) { outputMode = OUTPUT_IMAGE_BITMAP; }
         else if (!strcmp(argv[i], "--output:svg")) { outputMode = OUTPUT_IMAGE_SVG; }
+        else if (!strcmp(argv[i], "--bmp-scale")) { scale = atoi(argv[++i]); }
+        else if (!strcmp(argv[i], "--svg-point")) { moduleSize = atof(argv[++i]); }
+        else if (!strcmp(argv[i], "--svg-round")) { moduleRound = atof(argv[++i]); }
+        else if (!strcmp(argv[i], "--svg-finder-round")) { finderPart = true; finderRound = atof(argv[++i]); }
+        else if (!strcmp(argv[i], "--svg-alignment-round")) { alignmentPart = true; alignmentRound = atof(argv[++i]); }
         else if (argv[i][0] == '-')
         {
             fprintf(stderr, "ERROR: Unrecognized parameter: %s\n", argv[i]); 
@@ -247,7 +279,13 @@ int main(int argc, char *argv[])
 
     if (help)
     {
-        fprintf(stderr, "USAGE: qrcode [--ecl:<l|m|q|h>] [--uppercase] [--invert] [[--output:<large|narrow|compact|svg>] | --output:bmp --scale 1] [--quiet 4] [--file filename] <value>\n"); 
+        fprintf(stderr, "Usage:  qrcode [--ecl:<l|m|q|h>] [--uppercase] [--invert] [--quiet 4] [--output:<large|narrow|compact|bmp|svg>] [--file filename] <value>\n");
+        fprintf(stderr, "\n");
+        fprintf(stderr, "For --output:bmp:  [--bmp-scale 1]\n");
+        fprintf(stderr, "For --output:svg:  [--svg-point 1.0] [--svg-round 0.0] [--svg-finder-round 0.0] [--svg-alignment-round 0.0]\n");
+        fprintf(stderr, "\n");
+        fprintf(stderr, "Example:  ./qrcode --output:svg --svg-round 1 --svg-finder-round 1 --svg-point 0.9 --file hello.svg \"Hello world!\"\n");
+        fprintf(stderr, "\n");
         return -1;
     }
 
@@ -275,6 +313,7 @@ int main(int argc, char *argv[])
     {
 #ifdef _WIN32
         if (outputMode == OUTPUT_TEXT_LARGE || outputMode == OUTPUT_TEXT_NARROW || outputMode == OUTPUT_TEXT_COMPACT) SetConsoleOutputCP(CP_UTF8);
+        _setmode(_fileno(stdout), O_BINARY);
 #endif
         switch (outputMode)
         {
@@ -282,7 +321,7 @@ int main(int argc, char *argv[])
             case OUTPUT_TEXT_NARROW: OutputQrCodeTextNarrow(&qrcode, ofp, quiet, true); break;
             case OUTPUT_TEXT_COMPACT: OutputQrCodeTextCompact(&qrcode, ofp, quiet, true); break;
             case OUTPUT_IMAGE_BITMAP: OutputQrCodeImageBitmap(&qrcode, ofp, dimension, quiet, scale, invert); break;
-            case OUTPUT_IMAGE_SVG: OutputQrCodeImageSvg(&qrcode, ofp, dimension, quiet, invert); break;
+            case OUTPUT_IMAGE_SVG: OutputQrCodeImageSvg(&qrcode, ofp, dimension, quiet, invert, moduleSize, moduleRound, finderPart, finderRound, alignmentPart, alignmentRound); break;
             default: fprintf(ofp, "<error>"); break;
         }
     }
