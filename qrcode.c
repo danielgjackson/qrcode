@@ -12,6 +12,8 @@
 
 #include "qrcode.h"
 
+//#define QR_DEBUG_DUMP
+
 //#define QRCODE_DIMENSION_TO_VERSION(_n) (((_n) - 17) / 4)
 #define QRCODE_FINDER_SIZE 7
 #define QRCODE_TIMING_OFFSET 6
@@ -21,6 +23,10 @@
 #define QRCODE_MODULE_DARK 1
 
 #define QRCODE_PAD_CODEWORDS 0xec11 // Pad codewords 0b11101100=0xec 0b00010001=0x11
+
+#ifdef QR_DEBUG_DUMP
+static int qrWritingCodeword = 0;    // for QrCodeCursorWrite()
+#endif
 
 static bool QrCodeBufferRead(uint8_t* scratchBuffer, size_t bitPosition)
 {
@@ -314,17 +320,27 @@ int QrCodeModuleGet(qrcode_t *qrcode, int x, int y)
 {
     if (x < 0 || y < 0 || x >= qrcode->dimension || y >= qrcode->dimension) return 0; // quiet
     int offset = y * qrcode->dimension + x;
+#ifdef QR_DEBUG_DUMP
+    if (qrcode->buffer == NULL || offset < 0 || offset >= qrcode->bufferSize) return -1;
+    return qrcode->buffer[offset];
+#else
     if (qrcode->buffer == NULL || offset < 0 || (offset >> 3) >= qrcode->bufferSize) return -1;
     return qrcode->buffer[offset >> 3] & (1 << (7 - (offset & 7))) ? 1 : 0;
+#endif
 }
 
 static void QrCodeModuleSet(qrcode_t *qrcode, int x, int y, int value)
 {
     if (x < 0 || y < 0 || x >= qrcode->dimension || y >= qrcode->dimension) return; // quiet
     int offset = y * qrcode->dimension + x;
+#ifdef QR_DEBUG_DUMP
+    if (qrcode->buffer == NULL || offset < 0 || offset >= qrcode->bufferSize) return;
+    qrcode->buffer[offset] = value;
+#else
     if (qrcode->buffer == NULL || offset < 0 || (offset >> 3) >= qrcode->bufferSize) return;
     uint8_t mask = (1 << (7 - (offset & 7)));
     qrcode->buffer[offset >> 3] = (qrcode->buffer[offset >> 3] & ~mask) | (value ? mask : 0);
+#endif
 }
 
 
@@ -428,7 +444,9 @@ static void QrCodeDrawFormatInfo(qrcode_t* qrcode, uint16_t value)
     for (int i = 0; i < 15; i++)
     {
         int v = (value >> i) & 1;
-        //v = 100 + i; // for debug
+#ifdef QR_DEBUG_DUMP
+        v = ((40 + i) << 1) | v; // for debug
+#endif
         // 15-bits starting LSB clockwise from top-left finder avoiding timing strips
         if (i < 6) QrCodeModuleSet(qrcode, QRCODE_FINDER_SIZE + 1, i, v);
         else if (i == 6) QrCodeModuleSet(qrcode, QRCODE_FINDER_SIZE + 1, QRCODE_FINDER_SIZE, v);
@@ -453,7 +471,9 @@ static void QrCodeDrawVersionInfo(qrcode_t *qrcode, uint32_t value)
     for (int i = 0; i < 18; i++)
     {
         int v = (value >> i) & 1;
-        //v = 100 + i; // for debug
+#ifdef QR_DEBUG_DUMP
+        v = ((60 + i) << 1) | v; // for debug
+#endif
         int col = i / QRCODE_VERSION_SIZE;
         int row = i % QRCODE_VERSION_SIZE;
         QrCodeModuleSet(qrcode, col, qrcode->dimension - 1 - QRCODE_FINDER_SIZE - QRCODE_VERSION_SIZE + row, v);
@@ -610,6 +630,9 @@ static bool QrCodePrepare(qrcode_t* qrcode)
 
     // Required size of QR Code buffer
     qrcode->bufferSize = QRCODE_BUFFER_SIZE(qrcode->version);
+#ifdef QR_DEBUG_DUMP
+    qrcode->bufferSize *= 8;
+#endif
 
     // Allowed to try to find a better correction level
     if (qrcode->optimizeEcc)
@@ -638,6 +661,9 @@ static bool QrCodePrepare(qrcode_t* qrcode)
 
     // Required size of scratch buffer
     qrcode->scratchBufferSize = QRCODE_SCRATCH_BUFFER_SIZE(qrcode->version);
+#ifdef QR_DEBUG_DUMP
+    qrcode->scratchBufferSize *= 8;
+#endif
     qrcode->prepared = true;
     return true;
 }
@@ -709,6 +735,9 @@ size_t QrCodeCursorWrite(qrcode_t *qrcode, int *cursorX, int *cursorY, uint8_t *
     for (int countWritten = 0; countWritten < countBits; countWritten++)
     {
         int bit = QrCodeBufferRead(buffer, index);
+#ifdef QR_DEBUG_DUMP
+        bit = (((qrWritingCodeword & 1 ? 20 : 0) + ((int)countBits - 1 - countWritten)) << 1) | bit; // for debug
+#endif
         QrCodeModuleSet(qrcode, *cursorX, *cursorY, bit);
         index++;
         if (!QrCodeCursorAdvance(qrcode, cursorX, cursorY)) break;
@@ -801,8 +830,86 @@ int QrCodeEvaluatePenalty(qrcode_t *qrcode)
     return totalPenalty;
 }
 
+
+#ifdef QR_DEBUG_DUMP
+void QrCodeDebugDump(qrcode_t* qrcode)
+{
+    int quiet = QRCODE_QUIET_STANDARD;
+    for (int y = -quiet; y < qrcode->dimension + quiet; y++)
+    {
+        int lastColor = -1;
+        for (int x = -quiet; x < qrcode->dimension + quiet; x++)
+        {
+            qrcode_part_t part = QrCodeIdentifyModule(qrcode, x, y);
+            const char* s = "??";
+            int color = QrCodeModuleGet(qrcode, x, y);
+
+            switch (part)
+            {
+            case QRCODE_PART_QUIET:            s = ".."; break;
+            case QRCODE_PART_CONTENT:          s = "[]"; break;
+            case QRCODE_PART_SEPARATOR:        s = "::"; break;
+            case QRCODE_PART_FINDER:           s = "Fi"; break;
+            case QRCODE_PART_FINDER_ORIGIN:    s = "FI"; break;
+            case QRCODE_PART_FORMAT:           s = "Fo"; break;
+            case QRCODE_PART_VERSION:          s = "Ve"; break;
+            case QRCODE_PART_ALIGNMENT:        s = "Al"; break;
+            case QRCODE_PART_ALIGNMENT_ORIGIN: s = "AL"; break;
+            case QRCODE_PART_TIMING:           s = "Ti"; break;
+            }
+
+            // Debug double digits
+            if (part == QRCODE_PART_CONTENT || part == QRCODE_PART_FORMAT || part == QRCODE_PART_VERSION)
+            {
+                static char buf[3];
+                buf[0] = '0' + (((color >> 1) / 10) % 2);
+                buf[1] = '0' + ((color >> 1) % 10);
+                buf[2] = '\0';
+                if (buf[0] == '0') buf[0] = '_';
+                s = buf;
+
+                color = 3 + ((color >> 1) / 20);    // 0-19; 20-39; 40-59; ...
+            }
+
+            if (color != lastColor)
+            {
+                //if (color == 0) printf("\033[30m\033[47;1m");   // White background, black text
+                //if (color == 1) printf("\033[37;1m\033[40m");   // Black background, white text
+                if (color == QRCODE_MODULE_LIGHT) printf("\033[37m\033[47;1m");      // Grey text, white background
+                else if (color == QRCODE_MODULE_DARK) printf("\033[30;1m\033[40m");  // Dark grey text, black background
+                else if (color == 3) printf("\033[92m\033[42m");                     // Debug 1xx Green
+                else if (color == 4) printf("\033[93m\033[43m");                     // Debug 2xx 
+                else printf("\033[91m\033[41m");                                     // Red
+            }
+            printf("%s", s);
+            lastColor = color;
+        }
+        printf("\033[0m \n");    // reset
+    }
+}
+#endif
+
+/*
+void dump_scratch(uint8_t* scratchBuffer, size_t numBits, char* label)
+{
+    printf("@%d %10s ", (int)numBits, label ? label : "");
+    for (size_t i = 0; i < numBits; i++)
+    {
+        if (i % 8 == 0)
+        {
+            uint8_t byte = scratchBuffer[i >> 3];
+            printf(" %02x=", byte);
+        }
+        bool bit = QrCodeBufferRead(scratchBuffer, i);
+        printf("%d", (int)bit);
+    }
+    printf("\n");
+}
+*/
+
+
 // Generate the code
-bool QrCodeGenerate(qrcode_t *qrcode, uint8_t *buffer, uint8_t *scratchBuffer)
+bool QrCodeGenerate(qrcode_t* qrcode, uint8_t* buffer, uint8_t* scratchBuffer)
 {
     if (!QrCodePrepare(qrcode)) return false;
 
@@ -843,9 +950,9 @@ bool QrCodeGenerate(qrcode_t *qrcode, uint8_t *buffer, uint8_t *scratchBuffer)
 
     // Position in buffer for ECC data
     size_t eccOffset = (totalCapacity - ((size_t)8 * eccCodewords * eccBlockCount)) / 8;
-//if ((bitPosition != 8 * eccOffset) || (bitPosition != qrcode->dataCapacity) || (qrcode->dataCapacity != 8 * eccOffset)) printf("ERROR: Expected current bit position (%d) to match ECC offset *8 (%d) and data capacity (%d).\n", (int)bitPosition, (int)eccOffset * 8, (int)qrcode->dataCapacity);
+    //if ((bitPosition != 8 * eccOffset) || (bitPosition != qrcode->dataCapacity) || (qrcode->dataCapacity != 8 * eccOffset)) printf("ERROR: Expected current bit position (%d) to match ECC offset *8 (%d) and data capacity (%d).\n", (int)bitPosition, (int)eccOffset * 8, (int)qrcode->dataCapacity);
 
-    // Calculate Reed-Solomon divisor
+        // Calculate Reed-Solomon divisor
     uint8_t eccDivisor[QRCODE_ECC_CODEWORDS_MAX];
     QrCodeRSDivisor(eccCodewords, eccDivisor);
 
@@ -868,7 +975,7 @@ bool QrCodeGenerate(qrcode_t *qrcode, uint8_t *buffer, uint8_t *scratchBuffer)
         }
         size_t dataLen = dataLenShort + (block < countShortBlocks ? 0 : 1);
         // Calculate this block's ECC
-        uint8_t *eccDest = qrcode->scratchBuffer + eccOffset + (block * (size_t)eccCodewords);
+        uint8_t* eccDest = qrcode->scratchBuffer + eccOffset + (block * (size_t)eccCodewords);
         QrCodeRSRemainder(qrcode->scratchBuffer + dataOffset, dataLen, eccDivisor, eccCodewords, eccDest);
     }
 
@@ -907,6 +1014,9 @@ bool QrCodeGenerate(qrcode_t *qrcode, uint8_t *buffer, uint8_t *scratchBuffer)
             size_t codeword = (block * dataLenShort) + (block > countShortBlocks ? block - countShortBlocks : 0) + i;
             size_t sourceBit = codeword * 8;
             size_t countBits = 8;
+#ifdef QR_DEBUG_DUMP
+            qrWritingCodeword = ((i * eccBlockCount) + block) & 1;
+#endif
             totalWritten += QrCodeCursorWrite(qrcode, &cursorX, &cursorY, qrcode->scratchBuffer, sourceBit, countBits);
         }
     }
@@ -918,12 +1028,15 @@ bool QrCodeGenerate(qrcode_t *qrcode, uint8_t *buffer, uint8_t *scratchBuffer)
         {
             size_t sourceBit = 8 * eccOffset + (block * (size_t)eccCodewords * 8) + ((size_t)i * 8);
             size_t countBits = 8;
+#ifdef QR_DEBUG_DUMP
+            qrWritingCodeword = ((i * eccBlockCount) + block + (dataLenLong * eccBlockCount)) & 1;
+#endif
             totalWritten += QrCodeCursorWrite(qrcode, &cursorX, &cursorY, qrcode->scratchBuffer, sourceBit, countBits);
         }
     }
-//printf("*** dataCapacity=%d capacity=%d totalWritten=%d remainder=%d, eccOffset(bytes)=%d, eccCodewords=%d, eccBlockCount=%d, eccSize=%d, eccEnd=%d\n", (int)qrcode->dataCapacity, (int)totalCapacity, (int)totalWritten, (int)(totalCapacity - totalWritten), (int)eccOffset, (int)eccCodewords, (int)eccBlockCount, (int)(8 * eccCodewords * eccBlockCount), (int)((eccOffset * 8) + 8 * eccCodewords * eccBlockCount));
+    //printf("*** dataCapacity=%d capacity=%d totalWritten=%d remainder=%d, eccOffset(bytes)=%d, eccCodewords=%d, eccBlockCount=%d, eccSize=%d, eccEnd=%d\n", (int)qrcode->dataCapacity, (int)totalCapacity, (int)totalWritten, (int)(totalCapacity - totalWritten), (int)eccOffset, (int)eccCodewords, (int)eccBlockCount, (int)(8 * eccCodewords * eccBlockCount), (int)((eccOffset * 8) + 8 * eccCodewords * eccBlockCount));
 
-    // Add any remainder 0 bits (could be 0/3/4/7)
+        // Add any remainder 0 bits (could be 0/3/4/7)
     while (totalWritten < totalCapacity)
     {
         QrCodeModuleSet(qrcode, cursorX, cursorY, 0);
@@ -969,78 +1082,9 @@ bool QrCodeGenerate(qrcode_t *qrcode, uint8_t *buffer, uint8_t *scratchBuffer)
     uint16_t formatInfo = QrCodeCalcFormatInfo(qrcode, qrcode->errorCorrectionLevel, qrcode->maskPattern);
     QrCodeDrawFormatInfo(qrcode, formatInfo);
 
+#ifdef QR_DEBUG_DUMP
+    QrCodeDebugDump(qrcode);
+#endif
+
     return true;
 }
-
-
-/*
-void QrCodeDebugDump(qrcode_t* qrcode)
-{
-    int quiet = QRCODE_QUIET_STANDARD;
-    for (int y = -quiet; y < qrcode->dimension + quiet; y++)
-    {
-        int lastColor = -1;
-        for (int x = -quiet; x < qrcode->dimension + quiet; x++)
-        {
-            qrcode_part_t part = QrCodeIdentifyModule(qrcode, x, y);
-            const char* s = "??";
-            int color = QrCodeModuleGet(qrcode, x, y);;
-
-            switch (part)
-            {
-            case QRCODE_PART_QUIET:            s = ".."; break;
-            case QRCODE_PART_CONTENT:          s = "[]"; break;
-            case QRCODE_PART_SEPARATOR:        s = "::"; break;
-            case QRCODE_PART_FINDER:           s = "Fi"; break;
-            case QRCODE_PART_FINDER_ORIGIN:    s = "FI"; break;
-            case QRCODE_PART_FORMAT:           s = "Fo"; break;
-            case QRCODE_PART_VERSION:          s = "Ve"; break;
-            case QRCODE_PART_ALIGNMENT:        s = "Al"; break;
-            case QRCODE_PART_ALIGNMENT_ORIGIN: s = "AL"; break;
-            case QRCODE_PART_TIMING:           s = "Ti"; break;
-            }
-            // Debug double digits
-            if (color >= 100)
-            {
-                static char buf[3];
-                buf[0] = '0' + (color / 10) % 10;
-                buf[1] = '0' + color % 10;
-                buf[2] = '\0';
-                if (buf[0] == '0') buf[0] = '_';
-                s = buf;
-                color = color >= 200 ? 4 : 3;
-            }
-            if (color != lastColor)
-            {
-                //if (color == 0) printf("\033[30m\033[47;1m");   // White background, black text
-                //if (color == 1) printf("\033[37;1m\033[40m");   // Black background, white text
-                if (color == QRCODE_MODULE_LIGHT) printf("\033[37m\033[47;1m");      // Grey text, white background
-                else if (color == QRCODE_MODULE_DARK) printf("\033[30;1m\033[40m");  // Dark grey text, black background
-                else if (color == 3) printf("\033[92m\033[42m");                     // Debug 1xx Green
-                else if (color == 4) printf("\033[93m\033[43m");                     // Debug 2xx 
-                else printf("\033[91m\033[41m");                                     // Red
-            }
-            printf("%s", s);
-            lastColor = color;
-        }
-        printf("\033[0m \n");    // reset
-    }
-}
-*/
-/*
-void dump_scratch(uint8_t* scratchBuffer, size_t numBits, char* label)
-{
-    printf("@%d %10s ", (int)numBits, label ? label : "");
-    for (size_t i = 0; i < numBits; i++)
-    {
-        if (i % 8 == 0)
-        {
-            uint8_t byte = scratchBuffer[i >> 3];
-            printf(" %02x=", byte);
-        }
-        bool bit = QrCodeBufferRead(scratchBuffer, i);
-        printf("%d", (int)bit);
-    }
-    printf("\n");
-}
-*/
