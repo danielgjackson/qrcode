@@ -61,7 +61,7 @@ void OutputQrCodeTextMedium(qrcode_t* qrcode, FILE* fp, int quiet, bool invert)
         for (int x = -quiet; x < qrcode->dimension + quiet; x++)
         {
             int bitU = QrCodeModuleGet(qrcode, x, y) & 1;
-            int bitL = (y + 1 < qrcode->dimension + quiet) ? (QrCodeModuleGet(qrcode, x, y + 1) & 1) : (invert ? 0 : 1);
+            int bitL = (y + 1 < qrcode->dimension + quiet) ? (QrCodeModuleGet(qrcode, x, y + 1) & 1) : (invert ? 1 : 0);
             int value = ((bitL ? 2 : 0) + (bitU ? 1 : 0)) ^ (invert ? 0x3 : 0x0);
             switch (value)
             {
@@ -95,6 +95,7 @@ void OutputQrCodeTextCompact(qrcode_t* qrcode, FILE* fp, int quiet, bool invert)
 }
 
 
+// This output type requires "BLOCK SEXTANT" codes from "Symbols For Legacy Computing", part of Unicode 13.
 void OutputQrCodeTextTiny(qrcode_t* qrcode, FILE* fp, int quiet, bool invert)
 {
     for (int y = -quiet; y < qrcode->dimension + quiet; y += 3)
@@ -231,11 +232,11 @@ static void OutputQrCodeImageSvg(qrcode_t* qrcode, FILE *fp, int dimension, int 
         for (int x = 0; x < dimension; x++)
         {
             char *type = "b";
-            qrcode_part_t part = QrCodeIdentifyModule(qrcode, x, y);
+            qrcode_part_t part = QrCodeIdentifyModule(qrcode, x, y, NULL);
 
             // Draw finder/alignment as modules (define to nothing if drawing as whole parts)
-            if (part == QRCODE_PART_FINDER || part == QRCODE_PART_FINDER_ORIGIN) { type = "f"; }
-            else if (part == QRCODE_PART_ALIGNMENT || part == QRCODE_PART_ALIGNMENT_ORIGIN) { type = "a"; }
+            if (part == QRCODE_PART_FINDER) { type = "f"; }
+            else if (part == QRCODE_PART_ALIGNMENT) { type = "a"; }
 
             bool bit = (QrCodeModuleGet(qrcode, x, y) & 1) ^ invert;
             if ((bit & 1) == 0) continue;
@@ -249,10 +250,11 @@ static void OutputQrCodeImageSvg(qrcode_t* qrcode, FILE *fp, int dimension, int 
     {
         for (int x = 0; x < dimension; x++)
         {
+            int index;
             char* type = NULL;
-            qrcode_part_t part = QrCodeIdentifyModule(qrcode, x, y);
-            if (part == QRCODE_PART_FINDER_ORIGIN) type = "fc";
-            if (part == QRCODE_PART_ALIGNMENT_ORIGIN) type = "ac";
+            qrcode_part_t part = QrCodeIdentifyModule(qrcode, x, y, &index);
+            if (part == QRCODE_PART_FINDER && index == -1) type = "fc";
+            if (part == QRCODE_PART_ALIGNMENT && index == -1) type = "ac";
             if (type == NULL) continue;
             fprintf(fp, "<use x=\"%d\" y=\"%d\" href=\"#%s\" />\n", x, y, type);
         }

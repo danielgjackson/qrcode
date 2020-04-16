@@ -40,7 +40,6 @@ static size_t QrCodeTotalCapacity(int version)
 #define QRCODE_TEXT_LENGTH ((size_t)-1)
 
 // Error correction level
-#define QRCODE_SIZE_ECL 2   // 2-bit error correction
 typedef enum
 {
     QRCODE_ECL_M = 0x00, // 0b00 Medium (~15%)
@@ -50,7 +49,6 @@ typedef enum
 } qrcode_error_correction_level_t;
 
 // Mask pattern reference (i=row, j=column; where true: invert)
-#define QRCODE_SIZE_MASK 3  // 3-bit mask size
 typedef enum
 {
     QRCODE_MASK_AUTO = -1,  // Automatically determine best mask
@@ -64,7 +62,6 @@ typedef enum
     QRCODE_MASK_111 = 0x07, // 0b111 ((i j) mod 3 + (i + j) mod 2) mod 2 = 0
 } qrcode_mask_pattern_t;
 
-#define QRCODE_SIZE_MODE_INDICATOR 4                // 4-bit mode indicator
 typedef enum
 {
     QRCODE_MODE_INDICATOR_AUTOMATIC = -1,           // Automatically select efficient mode
@@ -137,11 +134,9 @@ int QrCodeModuleGet(qrcode_t* qrcode, int x, int y);
 typedef enum
 {
     // Function patterns
-    QRCODE_PART_ALIGNMENT_ORIGIN = -6, // Alignment pattern origin
-    QRCODE_PART_ALIGNMENT = -5,        // Alignment pattern(s)
-    QRCODE_PART_TIMING = -4,           // Timing pattern
-    QRCODE_PART_SEPARATOR = -3,        // Separator around finder position detection patterns
-    QRCODE_PART_FINDER_ORIGIN = -2,    // Position detection pattern origin
+    QRCODE_PART_ALIGNMENT = -4,        // Alignment pattern(s)
+    QRCODE_PART_TIMING = -3,           // Timing pattern
+    QRCODE_PART_SEPARATOR = -2,        // Separator around finder position detection patterns
     QRCODE_PART_FINDER = -1,           // Position detection pattern
     // Outside
     QRCODE_PART_QUIET = 0,             // Quiet margin outside of code
@@ -152,7 +147,7 @@ typedef enum
 } qrcode_part_t;
 
 // Determines which part a given module coordinate belongs to.
-qrcode_part_t QrCodeIdentifyModule(qrcode_t* qrcode, int x, int y);
+qrcode_part_t QrCodeIdentifyModule(qrcode_t* qrcode, int x, int y, int *index);
 
 #ifdef __cplusplus
 }
