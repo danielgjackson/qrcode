@@ -17,121 +17,139 @@
 #include "qrcode.h"
 
 typedef enum {
-    OUTPUT_TEXT_LARGE,
-    OUTPUT_TEXT_NARROW,
-    OUTPUT_TEXT_MEDIUM,
-    OUTPUT_TEXT_COMPACT,
-    OUTPUT_TEXT_TINY,
-    OUTPUT_IMAGE_BITMAP,
-    OUTPUT_IMAGE_SVG,
+    OUTPUT_TEXT,
+    OUTPUT_BITMAP,
+    OUTPUT_SVG,
 } output_mode_t;
 
-void OutputQrCodeTextLarge(qrcode_t* qrcode, FILE* fp, int quiet, bool invert)
+
+typedef struct
 {
-    for (int y = -quiet; y < qrcode->dimension + quiet; y++)
-    {
-        for (int x = -quiet; x < qrcode->dimension + quiet; x++)
-        {
-            int bit = (QrCodeModuleGet(qrcode, x, y) & 1) ^ (invert ? 0x1 : 0x0);
-            if (bit != 0) fprintf(fp, "██"); // '\u{2588}' block
-            else fprintf(fp, "  ");          // '\u{0020}' space
-        }
-        fprintf(fp, "\n");
-    }
-}
+    int cellW;
+    int cellH;
+    const char *text[];
+} text_render_t;
 
-void OutputQrCodeTextNarrow(qrcode_t* qrcode, FILE* fp, int quiet, bool invert)
+text_render_t textRenderLarge =
 {
-    for (int y = -quiet; y < qrcode->dimension + quiet; y++)
-    {
-        for (int x = -quiet; x < qrcode->dimension + quiet; x++)
-        {
-            int bit = (QrCodeModuleGet(qrcode, x, y) & 1) ^ (invert ? 0x1 : 0x0);
-            if (bit != 0) fprintf(fp, "█");  // '\u{2588}' block
-            else fprintf(fp, " ");           // '\u{0020}' space
-        }
-        fprintf(fp, "\n");
-    }
-}
+    1, 1,
+    { "  ", "██" }
+};
 
-void OutputQrCodeTextMedium(qrcode_t* qrcode, FILE* fp, int quiet, bool invert)
+text_render_t textRenderNarrow =
 {
-    for (int y = -quiet; y < qrcode->dimension + quiet; y += 2)
-    {
-        for (int x = -quiet; x < qrcode->dimension + quiet; x++)
-        {
-            int bitU = QrCodeModuleGet(qrcode, x, y) & 1;
-            int bitL = (y + 1 < qrcode->dimension + quiet) ? (QrCodeModuleGet(qrcode, x, y + 1) & 1) : (invert ? 1 : 0);
-            int value = ((bitL ? 2 : 0) + (bitU ? 1 : 0)) ^ (invert ? 0x3 : 0x0);
-            switch (value)
-            {
-            case 0: fprintf(fp, " "); break; // '\u{0020}' space
-            case 1: fprintf(fp, "▀"); break; // '\u{2580}' upper half block
-            case 2: fprintf(fp, "▄"); break; // '\u{2584}' lower half block
-            case 3: fprintf(fp, "█"); break; // '\u{2588}' block
-            }
-        }
-        fprintf(fp, "\n");
-    }
-}
+    1, 1,
+    { " ", "█" }            // '\u{0020}' space, '\u{2588}' block
+};
 
-
-void OutputQrCodeTextCompact(qrcode_t* qrcode, FILE* fp, int quiet, bool invert)
+text_render_t textRenderMedium =
 {
-    for (int y = -quiet; y < qrcode->dimension + quiet; y += 2)
-    {
-        for (int x = -quiet; x < qrcode->dimension + quiet; x += 2)
-        {
-            int value = 0;
-            value |= (QrCodeModuleGet(qrcode, x, y) & 1) ? 0x01 : 0x00;
-            value |= ((x + 1 < qrcode->dimension + quiet) ? (QrCodeModuleGet(qrcode, x + 1, y) & 1) : (invert ? 1 : 0)) ? 0x02 : 0x00;
-            value |= ((y + 1 < qrcode->dimension + quiet) ? (QrCodeModuleGet(qrcode, x, y + 1) & 1) : (invert ? 1 : 0)) ? 0x04 : 0x00;
-            value |= ((x + 1 < qrcode->dimension + quiet && y + 1 < qrcode->dimension + quiet) ? (QrCodeModuleGet(qrcode, x + 1, y + 1) & 1) : (invert ? 1 : 0)) ? 0x08 : 0x00;
-            const char* lookup[16] = { " ", "▘", "▝", "▀", "▖", "▌", "▞", "▛", "▗", "▚", "▐", "▜", "▄", "▙", "▟", "█" };
-            fprintf(fp, "%s", lookup[value ^ (invert ? 0x0f : 0x00)]);
-        }
-        fprintf(fp, "\n");
-    }
-}
+    1, 2,
+    { " ", "▀", "▄", "█" }  // '\u{0020}' space, '\u{2580}' upper half block, '\u{2584}' lower half block, '\u{2588}' block
+};
 
+text_render_t textRenderCompact =
+{
+    2, 2,
+    {
+        " ", "▘", "▝", "▀",
+        "▖", "▌", "▞", "▛",
+        "▗", "▚", "▐", "▜",
+        "▄", "▙", "▟", "█"
+    }
+};
 
 // This output type requires "BLOCK SEXTANT" codes from "Symbols For Legacy Computing", part of Unicode 13.
-void OutputQrCodeTextTiny(qrcode_t* qrcode, FILE* fp, int quiet, bool invert)
+text_render_t textRenderTiny =
 {
-    for (int y = -quiet; y < qrcode->dimension + quiet; y += 3)
+    2, 3,
     {
-        for (int x = -quiet; x < qrcode->dimension + quiet; x += 2)
+                 " ", "\U0001FB00", "\U0001FB01", "\U0001FB02", // 00/00/00, 10/00/00, 01/00/00, 11/00/00, 
+        "\U0001FB03", "\U0001FB04", "\U0001FB05", "\U0001FB06", // 00/10/00, 10/10/00, 01/10/00, 11/10/00, 
+        "\U0001FB07", "\U0001FB08", "\U0001FB09", "\U0001FB0A", // 00/01/00, 10/01/00, 01/01/00, 11/01/00, 
+        "\U0001FB0B", "\U0001FB0C", "\U0001FB0D", "\U0001FB0E", // 00/11/00, 10/11/00, 01/11/00, 11/11/00, 
+        "\U0001FB0F", "\U0001FB10", "\U0001FB11", "\U0001FB12", // 00/00/10, 10/00/10, 01/00/10, 11/00/10, 
+        "\U0001FB13",          "▌", "\U0001FB14", "\U0001FB15", // 00/10/10, 10/10/10, 01/10/10, 11/10/10, 
+        "\U0001FB16", "\U0001FB17", "\U0001FB18", "\U0001FB19", // 00/01/10, 10/01/10, 01/01/10, 11/01/10, 
+        "\U0001FB1A", "\U0001FB1B", "\U0001FB1C", "\U0001FB1D", // 00/11/10, 10/11/10, 01/11/10, 11/11/10, 
+        "\U0001FB1E", "\U0001FB1F", "\U0001FB20", "\U0001FB21", // 00/00/01, 10/00/01, 01/00/01, 11/00/01, 
+        "\U0001FB22", "\U0001FB23", "\U0001FB24", "\U0001FB25", // 00/10/01, 10/10/01, 01/10/01, 11/10/01, 
+        "\U0001FB26", "\U0001FB27",          "▐", "\U0001FB28", // 00/01/01, 10/01/01, 01/01/01, 11/01/01, 
+        "\U0001FB29", "\U0001FB2A", "\U0001FB2B", "\U0001FB2C", // 00/11/01, 10/11/01, 01/11/01, 11/11/01, 
+        "\U0001FB2D", "\U0001FB2E", "\U0001FB2F", "\U0001FB30", // 00/00/11, 10/00/11, 01/00/11, 11/00/11, 
+        "\U0001FB31", "\U0001FB32", "\U0001FB33", "\U0001FB34", // 00/10/11, 10/10/11, 01/10/11, 11/10/11, 
+        "\U0001FB35", "\U0001FB36", "\U0001FB37", "\U0001FB38", // 00/01/11, 10/01/11, 01/01/11, 11/01/11, 
+        "\U0001FB39", "\U0001FB3A", "\U0001FB3B",          "█", // 00/11/11, 10/11/11, 01/11/11, 11/11/11, 
+    }
+};
+
+
+text_render_t textRenderDots =
+{
+    2, 4,
+    {
+        "⠀", "⠁", "⠈", "⠉", "⠂", "⠃", "⠊", "⠋", "⠐", "⠑", "⠘", "⠙", "⠒", "⠓", "⠚", "⠛",
+        "⠄", "⠅", "⠌", "⠍", "⠆", "⠇", "⠎", "⠏", "⠔", "⠕", "⠜", "⠝", "⠖", "⠗", "⠞", "⠟",
+        "⠠", "⠡", "⠨", "⠩", "⠢", "⠣", "⠪", "⠫", "⠰", "⠱", "⠸", "⠹", "⠲", "⠳", "⠺", "⠻",
+        "⠤", "⠥", "⠬", "⠭", "⠦", "⠧", "⠮", "⠯", "⠴", "⠵", "⠼", "⠽", "⠶", "⠷", "⠾", "⠿",
+        "⡀", "⡁", "⡈", "⡉", "⡂", "⡃", "⡊", "⡋", "⡐", "⡑", "⡘", "⡙", "⡒", "⡓", "⡚", "⡛",
+        "⡄", "⡅", "⡌", "⡍", "⡆", "⡇", "⡎", "⡏", "⡔", "⡕", "⡜", "⡝", "⡖", "⡗", "⡞", "⡟",
+        "⡠", "⡡", "⡨", "⡩", "⡢", "⡣", "⡪", "⡫", "⡰", "⡱", "⡸", "⡹", "⡲", "⡳", "⡺", "⡻",
+        "⡤", "⡥", "⡬", "⡭", "⡦", "⡧", "⡮", "⡯", "⡴", "⡵", "⡼", "⡽", "⡶", "⡷", "⡾", "⡿",
+        "⢀", "⢁", "⢈", "⢉", "⢂", "⢃", "⢊", "⢋", "⢐", "⢑", "⢘", "⢙", "⢒", "⢓", "⢚", "⢛",
+        "⢄", "⢅", "⢌", "⢍", "⢆", "⢇", "⢎", "⢏", "⢔", "⢕", "⢜", "⢝", "⢖", "⢗", "⢞", "⢟",
+        "⢠", "⢡", "⢨", "⢩", "⢢", "⢣", "⢪", "⢫", "⢰", "⢱", "⢸", "⢹", "⢲", "⢳", "⢺", "⢻",
+        "⢤", "⢥", "⢬", "⢭", "⢦", "⢧", "⢮", "⢯", "⢴", "⢵", "⢼", "⢽", "⢶", "⢷", "⢾", "⢿",
+        "⣀", "⣁", "⣈", "⣉", "⣂", "⣃", "⣊", "⣋", "⣐", "⣑", "⣘", "⣙", "⣒", "⣓", "⣚", "⣛",
+        "⣄", "⣅", "⣌", "⣍", "⣆", "⣇", "⣎", "⣏", "⣔", "⣕", "⣜", "⣝", "⣖", "⣗", "⣞", "⣟",
+        "⣠", "⣡", "⣨", "⣩", "⣢", "⣣", "⣪", "⣫", "⣰", "⣱", "⣸", "⣹", "⣲", "⣳", "⣺", "⣻",
+        "⣤", "⣥", "⣬", "⣭", "⣦", "⣧", "⣮", "⣯", "⣴", "⣵", "⣼", "⣽", "⣶", "⣷", "⣾", "⣿",
+    }
+};
+
+
+text_render_t textRenderDots6 =
+{
+    2, 3,
+    {
+        "⠀", "⠁", "⠈", "⠉", "⠂", "⠃", "⠊", "⠋", "⠐", "⠑", "⠘", "⠙", "⠒", "⠓", "⠚", "⠛",
+        "⠄", "⠅", "⠌", "⠍", "⠆", "⠇", "⠎", "⠏", "⠔", "⠕", "⠜", "⠝", "⠖", "⠗", "⠞", "⠟",
+        "⠠", "⠡", "⠨", "⠩", "⠢", "⠣", "⠪", "⠫", "⠰", "⠱", "⠸", "⠹", "⠲", "⠳", "⠺", "⠻",
+        "⠤", "⠥", "⠬", "⠭", "⠦", "⠧", "⠮", "⠯", "⠴", "⠵", "⠼", "⠽", "⠶", "⠷", "⠾", "⠿",
+    }
+};
+
+
+void OutputQrCodeText(qrcode_t *qrcode, FILE *fp, const text_render_t *t, int quiet, bool invert)
+{
+    for (int y = -quiet; y < qrcode->dimension + quiet; y += t->cellH)
+    {
+        for (int x = -quiet; x < qrcode->dimension + quiet; x += t->cellW)
         {
             int value = 0;
             value |= (QrCodeModuleGet(qrcode, x, y) & 1) ? 0x01 : 0x00;
-            value |= ((x + 1 < qrcode->dimension + quiet) ? (QrCodeModuleGet(qrcode, x + 1, y) & 1) : (invert ? 1 : 0)) ? 0x02 : 0x00;
-            value |= ((y + 1 < qrcode->dimension + quiet) ? (QrCodeModuleGet(qrcode, x, y + 1) & 1) : (invert ? 1 : 0)) ? 0x04 : 0x00;
-            value |= ((x + 1 < qrcode->dimension + quiet && y + 1 < qrcode->dimension + quiet) ? (QrCodeModuleGet(qrcode, x + 1, y + 1) & 1) : (invert ? 1 : 0)) ? 0x08 : 0x00;
-            value |= ((y + 2 < qrcode->dimension + quiet) ? (QrCodeModuleGet(qrcode, x, y + 2) & 1) : (invert ? 1 : 0)) ? 0x10 : 0x00;
-            value |= ((x + 1 < qrcode->dimension + quiet && y + 2 < qrcode->dimension + quiet) ? (QrCodeModuleGet(qrcode, x + 1, y + 2) & 1) : (invert ? 1 : 0)) ? 0x20 : 0x00;
-            const char* lookup[64] = { 
-                         " ", "\U0001FB00", "\U0001FB01", "\U0001FB02", // 00/00/00, 10/00/00, 01/00/00, 11/00/00, 
-                "\U0001FB03", "\U0001FB04", "\U0001FB05", "\U0001FB06", // 00/10/00, 10/10/00, 01/10/00, 11/10/00, 
-                "\U0001FB07", "\U0001FB08", "\U0001FB09", "\U0001FB0A", // 00/01/00, 10/01/00, 01/01/00, 11/01/00, 
-                "\U0001FB0B", "\U0001FB0C", "\U0001FB0D", "\U0001FB0E", // 00/11/00, 10/11/00, 01/11/00, 11/11/00, 
-                "\U0001FB0F", "\U0001FB10", "\U0001FB11", "\U0001FB12", // 00/00/10, 10/00/10, 01/00/10, 11/00/10, 
-                "\U0001FB13",          "▌", "\U0001FB14", "\U0001FB15", // 00/10/10, 10/10/10, 01/10/10, 11/10/10, 
-                "\U0001FB16", "\U0001FB17", "\U0001FB18", "\U0001FB19", // 00/01/10, 10/01/10, 01/01/10, 11/01/10, 
-                "\U0001FB1A", "\U0001FB1B", "\U0001FB1C", "\U0001FB1D", // 00/11/10, 10/11/10, 01/11/10, 11/11/10, 
-                "\U0001FB1E", "\U0001FB1F", "\U0001FB20", "\U0001FB21", // 00/00/01, 10/00/01, 01/00/01, 11/00/01, 
-                "\U0001FB22", "\U0001FB23", "\U0001FB24", "\U0001FB25", // 00/10/01, 10/10/01, 01/10/01, 11/10/01, 
-                "\U0001FB26", "\U0001FB27",          "▐", "\U0001FB28", // 00/01/01, 10/01/01, 01/01/01, 11/01/01, 
-                "\U0001FB29", "\U0001FB2A", "\U0001FB2B", "\U0001FB2C", // 00/11/01, 10/11/01, 01/11/01, 11/11/01, 
-                "\U0001FB2D", "\U0001FB2E", "\U0001FB2F", "\U0001FB30", // 00/00/11, 10/00/11, 01/00/11, 11/00/11, 
-                "\U0001FB31", "\U0001FB32", "\U0001FB33", "\U0001FB34", // 00/10/11, 10/10/11, 01/10/11, 11/10/11, 
-                "\U0001FB35", "\U0001FB36", "\U0001FB37", "\U0001FB38", // 00/01/11, 10/01/11, 01/01/11, 11/01/11, 
-                "\U0001FB39", "\U0001FB3A", "\U0001FB3B",          "█", // 00/11/11, 10/11/11, 01/11/11, 11/11/11, 
-            };
-            fprintf(fp, "%s", lookup[value ^ (invert ? 0x3f : 0x00)]);
+            for (int yy = 0; yy < t->cellH; yy++)
+            {
+                for (int xx = 0; xx < t->cellW; xx++)
+                {
+                    int isSet = invert ? 1 : 0;
+                    if (x + xx < qrcode->dimension + quiet && y + yy < qrcode->dimension + quiet)
+                    {
+                        isSet = QrCodeModuleGet(qrcode, x + xx, y + yy) & 1;
+                    }
+                    if (isSet) value |= (1 << (yy * t->cellW + xx));
+                }
+            }
+            if (invert)
+            {
+                value ^= ((1 << (t->cellW * t->cellH)) - 1);
+            }
+            fprintf(fp, "%s", t->text[value]);
         }
         fprintf(fp, "\n");
     }
 }
+
 
 // Endian-independent short/long read/write
 static void fputshort(uint16_t v, FILE *fp) { fputc((uint8_t)((v >> 0) & 0xff), fp); fputc((uint8_t)((v >> 8) & 0xff), fp); }
@@ -271,7 +289,8 @@ int main(int argc, char *argv[])
     bool invert = false;
     int quiet = QRCODE_QUIET_STANDARD;
     bool mayUppercase = false;
-    output_mode_t outputMode = OUTPUT_TEXT_MEDIUM;
+    output_mode_t outputMode = OUTPUT_TEXT;
+    const text_render_t *textRender = &textRenderMedium;
     qrcode_error_correction_level_t errorCorrectionLevel = QRCODE_ECL_M;
     qrcode_mask_pattern_t maskPattern = QRCODE_MASK_AUTO;
     int version = QRCODE_VERSION_AUTO;
@@ -304,13 +323,15 @@ int main(int argc, char *argv[])
             ofp = fopen(argv[++i], "wb");
             if (ofp == NULL) { fprintf(stderr, "ERROR: Unable to open output filename: %s\n", argv[i]); return -1; }
         }
-        else if (!strcmp(argv[i], "--output:large")) { outputMode = OUTPUT_TEXT_LARGE; }
-        else if (!strcmp(argv[i], "--output:narrow")) { outputMode = OUTPUT_TEXT_NARROW; }
-        else if (!strcmp(argv[i], "--output:medium")) { outputMode = OUTPUT_TEXT_MEDIUM; }
-        else if (!strcmp(argv[i], "--output:compact")) { outputMode = OUTPUT_TEXT_COMPACT; }
-        else if (!strcmp(argv[i], "--output:tiny")) { outputMode = OUTPUT_TEXT_TINY; }
-        else if (!strcmp(argv[i], "--output:bmp")) { outputMode = OUTPUT_IMAGE_BITMAP; }
-        else if (!strcmp(argv[i], "--output:svg")) { outputMode = OUTPUT_IMAGE_SVG; }
+        else if (!strcmp(argv[i], "--output:large")) { outputMode = OUTPUT_TEXT; textRender = &textRenderLarge; }
+        else if (!strcmp(argv[i], "--output:narrow")) { outputMode = OUTPUT_TEXT; textRender = &textRenderNarrow; }
+        else if (!strcmp(argv[i], "--output:medium")) { outputMode = OUTPUT_TEXT; textRender = &textRenderMedium; }
+        else if (!strcmp(argv[i], "--output:compact")) { outputMode = OUTPUT_TEXT; textRender = &textRenderCompact; }
+        else if (!strcmp(argv[i], "--output:tiny")) { outputMode = OUTPUT_TEXT; textRender = &textRenderTiny; }
+        else if (!strcmp(argv[i], "--output:dots")) { outputMode = OUTPUT_TEXT; textRender = &textRenderDots; }
+        else if (!strcmp(argv[i], "--output:dots6")) { outputMode = OUTPUT_TEXT; textRender = &textRenderDots6; }
+        else if (!strcmp(argv[i], "--output:bmp")) { outputMode = OUTPUT_BITMAP; }
+        else if (!strcmp(argv[i], "--output:svg")) { outputMode = OUTPUT_SVG; }
         else if (!strcmp(argv[i], "--bmp-scale")) { scale = atoi(argv[++i]); }
         else if (!strcmp(argv[i], "--svg-point")) { moduleSize = atof(argv[++i]); }
         else if (!strcmp(argv[i], "--svg-round")) { moduleRound = atof(argv[++i]); }
@@ -375,18 +396,14 @@ int main(int argc, char *argv[])
     if (result)
     {
 #ifdef _WIN32
-        if (outputMode == OUTPUT_TEXT_LARGE || outputMode == OUTPUT_TEXT_NARROW || outputMode == OUTPUT_TEXT_MEDIUM || outputMode == OUTPUT_TEXT_COMPACT || outputMode == OUTPUT_TEXT_TINY) SetConsoleOutputCP(CP_UTF8);
+        if (outputMode == OUTPUT_TEXT) SetConsoleOutputCP(CP_UTF8);
         _setmode(_fileno(stdout), O_BINARY);
 #endif
         switch (outputMode)
         {
-            case OUTPUT_TEXT_LARGE: OutputQrCodeTextLarge(&qrcode, ofp, quiet, invert); break;
-            case OUTPUT_TEXT_NARROW: OutputQrCodeTextNarrow(&qrcode, ofp, quiet, invert); break;
-            case OUTPUT_TEXT_MEDIUM: OutputQrCodeTextMedium(&qrcode, ofp, quiet, invert); break;
-            case OUTPUT_TEXT_COMPACT: OutputQrCodeTextCompact(&qrcode, ofp, quiet, invert); break;
-            case OUTPUT_TEXT_TINY: OutputQrCodeTextTiny(&qrcode, ofp, quiet, invert); break;
-            case OUTPUT_IMAGE_BITMAP: OutputQrCodeImageBitmap(&qrcode, ofp, dimension, quiet, scale, invert); break;
-            case OUTPUT_IMAGE_SVG: OutputQrCodeImageSvg(&qrcode, ofp, dimension, quiet, invert, moduleSize, moduleRound, finderPart, finderRound, alignmentPart, alignmentRound); break;
+            case OUTPUT_TEXT: OutputQrCodeText(&qrcode, ofp, textRender, quiet, invert); break;
+            case OUTPUT_BITMAP: OutputQrCodeImageBitmap(&qrcode, ofp, dimension, quiet, scale, invert); break;
+            case OUTPUT_SVG: OutputQrCodeImageSvg(&qrcode, ofp, dimension, quiet, invert, moduleSize, moduleRound, finderPart, finderRound, alignmentPart, alignmentRound); break;
             default: fprintf(ofp, "<error>"); break;
         }
     }

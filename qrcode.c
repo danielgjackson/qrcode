@@ -7,14 +7,16 @@
 #include <string.h>
 #include <ctype.h>
 
-// For output functions (TODO: Move these out?)
-#include <stdio.h>
-
 #include "qrcode.h"
 
 #ifdef _DEBUG
-#define QR_DEBUG_DUMP
+//#define QR_DEBUG_DUMP
 #endif
+
+#ifdef QR_DEBUG_DUMP
+#include <stdio.h>
+#endif
+
 
 //#define QRCODE_DIMENSION_TO_VERSION(_n) (((_n) - 17) / 4)
 #define QRCODE_FINDER_SIZE 7
