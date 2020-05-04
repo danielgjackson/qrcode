@@ -207,39 +207,59 @@ static void OutputQrCodeImageBitmap(qrcode_t* qrcode, FILE *fp, int dimension, i
 
 static void OutputQrCodeImageSvg(qrcode_t* qrcode, FILE *fp, int dimension, int quiet, bool invert, double moduleSize, double moduleRound, bool finderPart, double finderRound, bool alignmentPart, double alignmentRound)
 {
+    const bool xlink = true;     // Use "xlink:" prefix on "href" for wider compatibility
+    const bool white = false;    // Output an element for every module, not just black/dark ones but white/light ones too.
+
     fprintf(fp, "<?xml version=\"1.0\"?>\n");
-    fprintf(fp, "<svg xmlns=\"http://www.w3.org/2000/svg\" viewport-fill=\"white\" fill=\"currentColor\" viewBox=\"-%d.5 -%d.5 %d %d\" shape-rendering=\"crispEdges\">\n", quiet, quiet, 2 * quiet + dimension, 2 * quiet + dimension);
+    // viewport-fill=\"white\" 
+    fprintf(fp, "<svg xmlns=\"http://www.w3.org/2000/svg\"%s fill=\"currentColor\" viewBox=\"-%d.5 -%d.5 %d %d\" shape-rendering=\"crispEdges\">\n", xlink ? " xmlns:xlink=\"http://www.w3.org/1999/xlink\"" : "", quiet, quiet, 2 * quiet + dimension, 2 * quiet + dimension);
     //fprintf(fp, "<desc>%s</desc>\n", data);
     fprintf(fp, "<defs>\n");
 
-    // module data bit
+    // module data bit (dark)
     fprintf(fp, "<rect id=\"b\" x=\"%f\" y=\"%f\" width=\"%f\" height=\"%f\" rx=\"%f\" />\n", -moduleSize / 2, -moduleSize / 2, moduleSize, moduleSize, 0.5f * moduleRound * moduleSize);
+    // module data bit (light). 
+    if (white)
+    {
+        // Light modules as a ref to a placeholder empty element
+        fprintf(fp, "<path id=\"w\" d=\"\" visibility=\"hidden\" />\n");
 
-    // finder
+        // Light modules similar to the dark ones: fill-opacity=\"0\" fill=\"white\" fill=\"rgba(255,255,255,0)\"
+        //fprintf(fp, "<rect id=\"w\" x=\"%f\" y=\"%f\" width=\"%f\" height=\"%f\" rx=\"%f\" fill-opacity=\"0\" />\n", -moduleSize / 2, -moduleSize / 2, moduleSize, moduleSize, 0.5f * moduleRound * moduleSize);
+
+        // Light modules as a variation of the dark ones: fill-opacity=\"0\" fill=\"white\" fill=\"rgba(255,255,255,0)\"
+        //fprintf(fp, "<use id=\"w\" %shref=\"#b\" fill-opacity=\"0\" />\n", xlink ? "xlink:" : "");
+    }
+
+    // Use one item for the finder marker
     if (finderPart)
     {
         // Hide finder module, use finder part
         fprintf(fp, "<path id=\"f\" d=\"\" visibility=\"hidden\" />\n");
+        if (white) fprintf(fp, "<path id=\"fw\" d=\"\" visibility=\"hidden\" />\n");
         fprintf(fp, "<g id=\"fc\"><rect x=\"-3\" y=\"-3\" width=\"6\" height=\"6\" rx=\"%f\" stroke=\"currentColor\" stroke-width=\"1\" fill=\"none\" /><rect x=\"-1.5\" y=\"-1.5\" width=\"3\" height=\"3\" rx=\"%f\" /></g>\n", 3.0f * finderRound, 1.5f * finderRound);
     }
     else
     {
         // Use normal module for finder module, hide finder part
-        fprintf(fp, "<g id=\"f\"><use href=\"#b\" /></g>\n");
+        fprintf(fp, "<use id=\"f\" %shref=\"#b\" />\n", xlink ? "xlink:" : "");
+        if (white) fprintf(fp, "<use id=\"fw\" %shref=\"#w\" />\n", xlink ? "xlink:" : "");
         fprintf(fp, "<path id=\"fc\" d=\"\" visibility=\"hidden\" />\n");
     }
 
-    // alignment
+    // Use one item for the alignment marker
     if (alignmentPart)
     {
         // Hide alignment module, use alignment part
         fprintf(fp, "<path id=\"a\" d=\"\" visibility=\"hidden\" />\n");
+        if (white) fprintf(fp, "<path id=\"aw\" d=\"\" visibility=\"hidden\" />\n");
         fprintf(fp, "<g id=\"ac\"><rect x=\"-2\" y=\"-2\" width=\"4\" height=\"4\" rx=\"%f\" stroke=\"currentColor\" stroke-width=\"1\" fill=\"none\" /><rect x=\"-0.5\" y=\"-0.5\" width=\"1\" height=\"1\" rx=\"%f\" /></g>\n", 2.0f * alignmentRound, 0.5f * alignmentRound);
     }
     else
     {
         // Use normal module for alignment module, hide alignment part
-        fprintf(fp, "<g id=\"a\"><use href=\"#b\" /></g>\n");
+        fprintf(fp, "<use id=\"a\" %shref=\"#b\" />\n", xlink ? "xlink:" : "");
+        if (white) fprintf(fp, "<use id=\"aw\" %shref=\"#w\" />\n", xlink ? "xlink:" : "");
         fprintf(fp, "<path id=\"ac\" d=\"\" visibility=\"hidden\" />\n");
     }
 
@@ -249,17 +269,15 @@ static void OutputQrCodeImageSvg(qrcode_t* qrcode, FILE *fp, int dimension, int 
     {
         for (int x = 0; x < dimension; x++)
         {
-            char *type = "b";
             qrcode_part_t part = QrCodeIdentifyModule(qrcode, x, y, NULL);
+            bool bit = ((QrCodeModuleGet(qrcode, x, y) & 1) ^ invert) & 1;
+            char* type = bit ? "b" : "w";
 
             // Draw finder/alignment as modules (define to nothing if drawing as whole parts)
-            if (part == QRCODE_PART_FINDER) { type = "f"; }
-            else if (part == QRCODE_PART_ALIGNMENT) { type = "a"; }
+            if (part == QRCODE_PART_FINDER) { type = bit ? "f" : "fw"; }
+            else if (part == QRCODE_PART_ALIGNMENT) { type = bit ? "a" : "aw"; }
 
-            bool bit = (QrCodeModuleGet(qrcode, x, y) & 1) ^ invert;
-            if ((bit & 1) == 0) continue;
-
-            fprintf(fp, "<use x=\"%d\" y=\"%d\" href=\"#%s\" />\n", x, y, type);
+            if (bit || white) fprintf(fp, "<use x=\"%d\" y=\"%d\" %shref=\"#%s\" />\n", x, y, xlink ? "xlink:" : "", type);
         }
     }
 
@@ -274,7 +292,7 @@ static void OutputQrCodeImageSvg(qrcode_t* qrcode, FILE *fp, int dimension, int 
             if (part == QRCODE_PART_FINDER && index == -1) type = "fc";
             if (part == QRCODE_PART_ALIGNMENT && index == -1) type = "ac";
             if (type == NULL) continue;
-            fprintf(fp, "<use x=\"%d\" y=\"%d\" href=\"#%s\" />\n", x, y, type);
+            fprintf(fp, "<use x=\"%d\" y=\"%d\" %shref=\"#%s\" />\n", x, y, xlink ? "xlink:" : "", type);
         }
     }
 
