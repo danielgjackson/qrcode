@@ -2,7 +2,7 @@
 
 Generates a QR Code pattern.
 
-For a tiny "V1" QR Code generator, with low RAM overhead, suitable for embedded contexts, see: [qrtiny](https://github.com/danielgjackson/qrtiny).
+For a tiny "V1" QR Code generator, with low RAM overhead, suitable for embedded contexts, see: [qrtiny](https://github.com/danielgjackson/qrtiny). For a JavaScript version, see: [qrcodejs](https://github.com/danielgjackson/qrcodejs).
 
 
 ## Create a QR Code
