@@ -1,4 +1,4 @@
-// QR Code Generator
+﻿// QR Code Generator
 // Dan Jackson, 2020
 
 #include <stdint.h>
@@ -333,7 +333,7 @@ int QrCodeModuleGet(qrcode_t *qrcode, int x, int y)
     if (qrcode->buffer == NULL || offset < 0 || offset >= qrcode->bufferSize) return -1;
     return qrcode->buffer[offset];
 #else
-    if (qrcode->buffer == NULL || offset < 0 || (offset >> 3) >= qrcode->bufferSize) return -1;
+    if (qrcode->buffer == NULL || offset < 0 || (size_t)(offset >> 3) >= qrcode->bufferSize) return -1;
     return qrcode->buffer[offset >> 3] & (1 << (7 - (offset & 7))) ? 1 : 0;
 #endif
 }
@@ -346,7 +346,7 @@ static void QrCodeModuleSet(qrcode_t *qrcode, int x, int y, int value)
     if (qrcode->buffer == NULL || offset < 0 || offset >= qrcode->bufferSize) return;
     qrcode->buffer[offset] = value;
 #else
-    if (qrcode->buffer == NULL || offset < 0 || (offset >> 3) >= qrcode->bufferSize) return;
+    if (qrcode->buffer == NULL || offset < 0 || (size_t)(offset >> 3) >= qrcode->bufferSize) return;
     uint8_t mask = (1 << (7 - (offset & 7)));
     qrcode->buffer[offset >> 3] = (qrcode->buffer[offset >> 3] & ~mask) | (value ? mask : 0);
 #endif
@@ -754,7 +754,7 @@ static void QrCodeRSRemainder(const uint8_t data[], size_t dataLen, const uint8_
 size_t QrCodeCursorWrite(qrcode_t *qrcode, int *cursorX, int *cursorY, uint8_t *buffer, size_t sourceBit, size_t countBits)
 {
     size_t index = sourceBit;
-    for (int countWritten = 0; countWritten < countBits; countWritten++)
+    for (size_t countWritten = 0; countWritten < countBits; countWritten++)
     {
         int bit = QrCodeBufferRead(buffer, index);
 #ifdef QR_DEBUG_DUMP
@@ -1028,7 +1028,7 @@ bool QrCodeGenerate(qrcode_t* qrcode, uint8_t* buffer, uint8_t* scratchBuffer)
     size_t totalWritten = 0;
 
     // Write data codewords interleaved accross ecc blocks -- some early blocks may be short
-    for (int i = 0; i < dataLenLong; i++)
+    for (size_t i = 0; i < dataLenLong; i++)
     {
         for (int block = 0; block < eccBlockCount; block++)
         {
