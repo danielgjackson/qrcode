@@ -1076,6 +1076,9 @@ bool QrCodeGenerate(qrcode_t* qrcode, uint8_t* buffer, uint8_t* scratchBuffer)
         {
             // XOR mask pattern
             QrCodeApplyMask(qrcode, maskPattern);
+            // Write format information
+            uint16_t formatInfo = QrCodeCalcFormatInfo(qrcode, qrcode->errorCorrectionLevel, maskPattern);
+            QrCodeDrawFormatInfo(qrcode, formatInfo);
 
             // Find penalty score for this mask pattern
             int penalty = QrCodeEvaluatePenalty(qrcode);
