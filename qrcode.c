@@ -771,7 +771,7 @@ int QrCodeEvaluatePenalty(qrcode_t *qrcode)
 {
     // Note: Penalty calculated over entire code (although format information is not yet written)
     const int scoreN1 = 3;
-    //const int scoreN2 = 3;
+    const int scoreN2 = 3;
     const int scoreN3 = 40;
     const int scoreN4 = 10;
     int totalPenalty = 0;
@@ -827,8 +827,17 @@ int QrCodeEvaluatePenalty(qrcode_t *qrcode)
     }
 
     // Feature 2: Block of identical modules: m * n size, penalty points: N2 * (m-1) * (n-1)
- // TODO: Calculate feature 2 penalty. (Clear up ambiguity over "block" and counting the same "block" overlapped multiple times)
-    ; // scoreN2
+    for (int y = 0; y < qrcode->dimension - 1; y++)
+    {
+        for (int x = 0; x < qrcode->dimension - 1; x++)
+        {
+            int bits = QrCodeModuleGet(qrcode, x, y);
+            bits += QrCodeModuleGet(qrcode, x+1, y);
+            bits += QrCodeModuleGet(qrcode, x, y+1);
+            bits += QrCodeModuleGet(qrcode, x+1, y+1);
+            if (bits == 0 || bits == 4) totalPenalty += scoreN2;
+        }
+    }
 
     // Feature 4: Dark module percentage: 50 +|- (5*k) to 50 +|- (5*(k+1)), penalty points: N4 * k
     {
