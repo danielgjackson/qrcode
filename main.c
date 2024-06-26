@@ -32,6 +32,12 @@ typedef struct
     const char *text[];
 } text_render_t;
 
+text_render_t textRenderAscii =
+{
+    1, 1,
+    { "  ", "##" }
+};
+
 text_render_t textRenderLarge =
 {
     1, 1,
@@ -343,6 +349,7 @@ int main(int argc, char *argv[])
             ofp = fopen(argv[++i], "wb");
             if (ofp == NULL) { fprintf(stderr, "ERROR: Unable to open output filename: %s\n", argv[i]); return -1; }
         }
+        else if (!strcmp(argv[i], "--output:ascii")) { outputMode = OUTPUT_TEXT; textRender = &textRenderAscii; }
         else if (!strcmp(argv[i], "--output:large")) { outputMode = OUTPUT_TEXT; textRender = &textRenderLarge; }
         else if (!strcmp(argv[i], "--output:narrow")) { outputMode = OUTPUT_TEXT; textRender = &textRenderNarrow; }
         else if (!strcmp(argv[i], "--output:medium")) { outputMode = OUTPUT_TEXT; textRender = &textRenderMedium; }
