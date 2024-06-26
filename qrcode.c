@@ -138,7 +138,7 @@ void QrCodeSegmentAppend(qrcode_t *qrcode, qrcode_segment_t *segment, qrcode_mod
     segment->text = text;
     segment->next = NULL;
 
-    // Find the most efficient mode for the entire given string (TODO: Analyize sub-strings for more efficient mode switching)
+    // Find the most efficient mode for the entire given string (TODO: Analyze sub-strings for more efficient mode switching)
     if (segment->mode == QRCODE_MODE_INDICATOR_AUTOMATIC)
     {
         if (QrCodeSegmentNumericCheck(text, segment->charCount)) segment->mode = QRCODE_MODE_INDICATOR_NUMERIC;
@@ -241,8 +241,10 @@ static size_t QrCodeSegmentSize(qrcode_segment_t *segment, int version)
             break;
         case QRCODE_MODE_INDICATOR_ECI:
         {
-            uint32_t eciAssigmentNumber = (uint32_t)segment->charCount;
-            bits += (eciAssigmentNumber <= 0xFF) ? 8 : (eciAssigmentNumber <= 0x3FFF) ? 16 : 24;
+            // Extended Channel Interpretation (e.g. character set)
+            // 1/3=ISO/IEC 8859-1 (default for QR Codes), 23=Windows-1252, 26=UTF-8, 27=US-ASCII, 899=8-bit binary data
+            uint32_t eciAssignmentNumber = (uint32_t)segment->charCount;
+            bits += (eciAssignmentNumber <= 0xFF) ? 8 : (eciAssignmentNumber <= 0x3FFF) ? 16 : 24;
             break;
         }
         default:
@@ -282,12 +284,12 @@ static size_t QrCodeSegmentWrite(qrcode_segment_t *segment, int version, uint8_t
     else if (segment->mode == QRCODE_MODE_INDICATOR_ECI)
     {
         // TODO: Should use a union rather than reuse 'charCount' for this
-        uint32_t eciAssigmentNumber = (uint32_t)segment->charCount;
+        uint32_t eciAssignmentNumber = (uint32_t)segment->charCount;
         size_t countBits = 0;
-        if (eciAssigmentNumber <= 0xFF) { countBits = 8; }                                          // 0-127 8-bit 0vvvvvvv
-        else if (eciAssigmentNumber <= 0x3FFF) { countBits = 16; eciAssigmentNumber = 0x8000 | eciAssigmentNumber; } // 128-16383 16-bit 10vvvvvv vvvvvvvv
-        else { countBits = 24; eciAssigmentNumber = 0xC00000 | (eciAssigmentNumber % 1000000); }    // 16384 to 999999 24-bit 110vvvvv vvvvvvvv vvvvvvvv
-        bitsWritten += QrCodeBufferAppend(buffer, bitPosition + bitsWritten, eciAssigmentNumber, countBits);
+        if (eciAssignmentNumber <= 0xFF) { countBits = 8; }                                          // 0-127 8-bit 0vvvvvvv
+        else if (eciAssignmentNumber <= 0x3FFF) { countBits = 16; eciAssignmentNumber = 0x8000 | eciAssignmentNumber; } // 128-16383 16-bit 10vvvvvv vvvvvvvv
+        else { countBits = 24; eciAssignmentNumber = 0xC00000 | (eciAssignmentNumber % 1000000); }    // 16384 to 999999 24-bit 110vvvvv vvvvvvvv vvvvvvvv
+        bitsWritten += QrCodeBufferAppend(buffer, bitPosition + bitsWritten, eciAssignmentNumber, countBits);
     }
     else
     {
@@ -769,7 +771,7 @@ size_t QrCodeCursorWrite(qrcode_t *qrcode, int *cursorX, int *cursorY, uint8_t *
 
 int QrCodeEvaluatePenalty(qrcode_t *qrcode)
 {
-    // Note: Penalty calculated over entire code (although format information is not yet written)
+    // Note: Penalty calculated over entire code
     const int scoreN1 = 3;
     const int scoreN2 = 3;
     const int scoreN3 = 40;
@@ -976,7 +978,7 @@ bool QrCodeGenerate(qrcode_t* qrcode, uint8_t* buffer, uint8_t* scratchBuffer)
     }
 
     // --- Calculate ECC at end of codewords ---
-    // ECC settings for the level and verions
+    // ECC settings for the level and versions
     int eccCodewords = qrcode_ecc_block_codewords[qrcode->errorCorrectionLevel][qrcode->version];
     int eccBlockCount = qrcode_ecc_block_count[qrcode->errorCorrectionLevel][qrcode->version];
     size_t totalCapacity = QRCODE_TOTAL_CAPACITY(qrcode->version);
@@ -1036,7 +1038,7 @@ bool QrCodeGenerate(qrcode_t* qrcode, uint8_t* buffer, uint8_t* scratchBuffer)
     QrCodeCursorReset(qrcode, &cursorX, &cursorY);
     size_t totalWritten = 0;
 
-    // Write data codewords interleaved accross ecc blocks -- some early blocks may be short
+    // Write data codewords interleaved across ecc blocks -- some early blocks may be short
     for (size_t i = 0; i < dataLenLong; i++)
     {
         for (int block = 0; block < eccBlockCount; block++)
@@ -1054,7 +1056,7 @@ bool QrCodeGenerate(qrcode_t* qrcode, uint8_t* buffer, uint8_t* scratchBuffer)
         }
     }
 
-    // Write ECC codewords interleaved accross ecc blocks
+    // Write ECC codewords interleaved across ecc blocks
     for (int i = 0; i < eccCodewords; i++)
     {
         for (int block = 0; block < eccBlockCount; block++)
