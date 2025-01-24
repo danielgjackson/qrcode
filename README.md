@@ -42,6 +42,31 @@ int QrCodeModuleGet(qrcode_t* qrcode, int x, int y);
 ```
 
 
+## Build
+
+### Windows
+
+On Windows, you can build an `qrcode.exe` binary in the current directory.  You will need *Visual Studio*, or the [Build Tools for Visual Studio](https://aka.ms/buildtools) (*All Downloads* / *Tools for Visual Studio* / *Build Tools for Visual Studio*).  <!-- Ensure you have the compilers installed: *Individual Components* / *Compilers, build tools, and runtimes* / *MSVC v143 - VS 2022 C++ x64/x86 build tools (Latest)* and *MSVC v143 - VS 2022 C++ x64/x86 Spectre-mitigated libs (Latest)*. --> Download and build with:
+
+```cmd
+powershell -Command "& {Invoke-WebRequest https://github.com/danielgjackson/qrcode/archive/master.zip -o qrcode.build.zip ; Expand-Archive qrcode.build.zip ; del qrcode.build.zip ; qrcode.build/qrcode-master/build.cmd ; copy qrcode.build/qrcode-master/qrcode.exe . }"
+```
+
+Alternatively, you can clone this repository and run: `build.cmd`
+
+
+### macOS, Linux, WSL
+
+On non-Windows operating systems, you can use this single line command to build an `qrcode` binary in the current directory:
+
+```bash
+mkdir qrcode.build && curl -L https://github.com/danielgjackson/qrcode/archive/master.zip -o qrcode.build/master.zip && unzip qrcode.build/master.zip -d qrcode.build && make -C qrcode.build/qrcode-master && cp qrcode.build/qrcode-master/qrcode .
+```
+
+Alternatively, you can clone this repository and run: `make -C src/qrcode`
+
+
+
 ## Demonstration program
 
 Demonstration program ([`main.c`](main.c)) to generate and output QR Codes.
@@ -65,3 +90,5 @@ Example use to generate a batch of .SVG files, taking the content from the file 
 cat list.txt | while read id; do ./qrcode --output:svg --svg-round 1 --svg-finder-round 1 --svg-point 0.9 --file $(echo "$id" | sed 's/^http\(s\)\{0,1\}:\/\///; s/[^A-Za-z0-9-]/_/g').svg "$id" ; done
 ```
 -->
+
+
