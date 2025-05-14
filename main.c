@@ -330,7 +330,7 @@ static void OutputQrCodeSixel(qrcode_t *qrcode, FILE *fp, int dimension, int qui
             {
                 int value = 0;
                 for (int yy = 0; yy < LINE_HEIGHT; yy++) {
-                    int module = (QrCodeModuleGet(qrcode, trunc((float)x / scale), trunc((float)(y + yy) / scale)) & 1) ? 0x00 : 0x01;
+                    int module = (QrCodeModuleGet(qrcode, floor((float)x / scale), floor((float)(y + yy) / scale)) & 1) ? 0x00 : 0x01;
                     if (invert) module = 1 - module;
                     int bit = (module == pass) ? 1 : 0;
                     value |= (bit ? 0x01 : 0x00) << yy;
