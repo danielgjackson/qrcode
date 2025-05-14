@@ -99,7 +99,7 @@ typedef struct
     // Data payload
     qrcode_segment_t *firstSegment;
 
-    // Calculated after preparation (also recalcualtes version if auto and ECL if optimized)
+    // Calculated after preparation (also recalculates version if auto and ECL if optimized)
     bool prepared;              // Preparation calculated (cached; adding another segment will invalidate the cache)
     int version;                // QRCODE_VERSION_MIN-QRCODE_VERSION_MAX; QRCODE_VERSION_AUTO: automatic
     size_t sizeBits;            // Total number of data bits from segments in the QR Code (not including bits added when space for: 4-bit terminator mode indicator, 0-padding to byte, padding bytes; or ECC)

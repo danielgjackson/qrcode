@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
+#include <math.h>
 
 #include "qrcode.h"
 
@@ -22,6 +23,7 @@ typedef enum {
     OUTPUT_TEXT,
     OUTPUT_BITMAP,
     OUTPUT_SVG,
+    OUTPUT_SIXEL,
 } output_mode_t;
 
 
@@ -128,11 +130,11 @@ text_render_t textRenderDots6 =
 };
 
 
-void OutputQrCodeText(qrcode_t *qrcode, FILE *fp, const text_render_t *t, int quiet, bool invert)
+static void OutputQrCodeText(qrcode_t *qrcode, FILE *fp, int dimension, const text_render_t *t, int quiet, bool invert)
 {
-    for (int y = -quiet; y < qrcode->dimension + quiet; y += t->cellH)
+    for (int y = -quiet; y < dimension + quiet; y += t->cellH)
     {
-        for (int x = -quiet; x < qrcode->dimension + quiet; x += t->cellW)
+        for (int x = -quiet; x < dimension + quiet; x += t->cellW)
         {
             int value = 0;
             value |= (QrCodeModuleGet(qrcode, x, y) & 1) ? 0x01 : 0x00;
@@ -141,7 +143,7 @@ void OutputQrCodeText(qrcode_t *qrcode, FILE *fp, const text_render_t *t, int qu
                 for (int xx = 0; xx < t->cellW; xx++)
                 {
                     int isSet = invert ? 1 : 0;
-                    if (x + xx < qrcode->dimension + quiet && y + yy < qrcode->dimension + quiet)
+                    if (x + xx < dimension + quiet && y + yy < dimension + quiet)
                     {
                         isSet = QrCodeModuleGet(qrcode, x + xx, y + yy) & 1;
                     }
@@ -213,14 +215,14 @@ static void OutputQrCodeImageBitmap(qrcode_t* qrcode, FILE *fp, int dimension, i
     }
 }
 
-static void OutputQrCodeImageSvg(qrcode_t* qrcode, FILE *fp, int dimension, int quiet, bool invert, double moduleSize, double moduleRound, bool finderPart, double finderRound, bool alignmentPart, double alignmentRound)
+static void OutputQrCodeImageSvg(qrcode_t* qrcode, FILE *fp, int dimension, int quiet, bool invert, char *color, double moduleSize, double moduleRound, bool finderPart, double finderRound, bool alignmentPart, double alignmentRound)
 {
     const bool xlink = true;     // Use "xlink:" prefix on "href" for wider compatibility
     const bool white = false;    // Output an element for every module, not just black/dark ones but white/light ones too.
 
     fprintf(fp, "<?xml version=\"1.0\"?>\n");
     // viewport-fill=\"white\" 
-    fprintf(fp, "<svg xmlns=\"http://www.w3.org/2000/svg\"%s fill=\"currentColor\" viewBox=\"-%d.5 -%d.5 %d %d\" shape-rendering=\"crispEdges\">\n", xlink ? " xmlns:xlink=\"http://www.w3.org/1999/xlink\"" : "", quiet, quiet, 2 * quiet + dimension, 2 * quiet + dimension);
+    fprintf(fp, "<svg xmlns=\"http://www.w3.org/2000/svg\"%s fill=\"%s\" viewBox=\"-%d.5 -%d.5 %d %d\" shape-rendering=\"crispEdges\">\n", xlink ? " xmlns:xlink=\"http://www.w3.org/1999/xlink\"" : "", color, quiet, quiet, 2 * quiet + dimension, 2 * quiet + dimension);
     //fprintf(fp, "<desc>%s</desc>\n", data);
     fprintf(fp, "<defs>\n");
 
@@ -245,7 +247,7 @@ static void OutputQrCodeImageSvg(qrcode_t* qrcode, FILE *fp, int dimension, int 
         // Hide finder module, use finder part
         fprintf(fp, "<path id=\"f\" d=\"\" visibility=\"hidden\" />\n");
         if (white) fprintf(fp, "<path id=\"fw\" d=\"\" visibility=\"hidden\" />\n");
-        fprintf(fp, "<g id=\"fc\"><rect x=\"-3\" y=\"-3\" width=\"6\" height=\"6\" rx=\"%f\" stroke=\"currentColor\" stroke-width=\"1\" fill=\"none\" /><rect x=\"-1.5\" y=\"-1.5\" width=\"3\" height=\"3\" rx=\"%f\" /></g>\n", 3.0f * finderRound, 1.5f * finderRound);
+        fprintf(fp, "<g id=\"fc\"><rect x=\"-3\" y=\"-3\" width=\"6\" height=\"6\" rx=\"%f\" stroke=\"%s\" stroke-width=\"1\" fill=\"none\" /><rect x=\"-1.5\" y=\"-1.5\" width=\"3\" height=\"3\" rx=\"%f\" /></g>\n", 3.0f * finderRound, color, 1.5f * finderRound);
     }
     else
     {
@@ -261,7 +263,7 @@ static void OutputQrCodeImageSvg(qrcode_t* qrcode, FILE *fp, int dimension, int 
         // Hide alignment module, use alignment part
         fprintf(fp, "<path id=\"a\" d=\"\" visibility=\"hidden\" />\n");
         if (white) fprintf(fp, "<path id=\"aw\" d=\"\" visibility=\"hidden\" />\n");
-        fprintf(fp, "<g id=\"ac\"><rect x=\"-2\" y=\"-2\" width=\"4\" height=\"4\" rx=\"%f\" stroke=\"currentColor\" stroke-width=\"1\" fill=\"none\" /><rect x=\"-0.5\" y=\"-0.5\" width=\"1\" height=\"1\" rx=\"%f\" /></g>\n", 2.0f * alignmentRound, 0.5f * alignmentRound);
+        fprintf(fp, "<g id=\"ac\"><rect x=\"-2\" y=\"-2\" width=\"4\" height=\"4\" rx=\"%f\" stroke=\"%s\" stroke-width=\"1\" fill=\"none\" /><rect x=\"-0.5\" y=\"-0.5\" width=\"1\" height=\"1\" rx=\"%f\" /></g>\n", 2.0f * alignmentRound, color, 0.5f * alignmentRound);
     }
     else
     {
@@ -289,7 +291,7 @@ static void OutputQrCodeImageSvg(qrcode_t* qrcode, FILE *fp, int dimension, int 
         }
     }
 
-    // Draw finder/aligment as whole parts (define to nothing if drawing as modules)
+    // Draw finder/alignment as whole parts (define to nothing if drawing as modules)
     for (int y = 0; y < dimension; y++)
     {
         for (int x = 0; x < dimension; x++)
@@ -307,6 +309,51 @@ static void OutputQrCodeImageSvg(qrcode_t* qrcode, FILE *fp, int dimension, int 
     fprintf(fp, "</svg>\n");
 }
 
+
+static void OutputQrCodeSixel(qrcode_t *qrcode, FILE *fp, int dimension, int quiet, int scale, bool invert)
+{
+    const int LINE_HEIGHT = 6;
+    // Enter sixel mode
+    fprintf(fp, "\x1BP7;1q");    // 1:1 ratio, 0 pixels remain at current color
+    // Set color map
+    fprintf(fp, "#0;2;0;0;0");       // Background
+    fprintf(fp, "#1;2;100;100;100");
+    for (int y = -quiet * scale; y < (dimension + quiet) * scale; y += LINE_HEIGHT)
+    {
+        const int passes = 2;
+        for (int pass = 0; pass < passes; pass++)
+        {
+            // Start a pass in a specific color
+            fprintf(fp, "#%d", pass);
+            // Line data
+            for (int x = -quiet * scale; x < (dimension + quiet) * scale; x += scale)
+            {
+                int value = 0;
+                for (int yy = 0; yy < LINE_HEIGHT; yy++) {
+                    int module = (QrCodeModuleGet(qrcode, trunc((float)x / scale), trunc((float)(y + yy) / scale)) & 1) ? 0x00 : 0x01;
+                    if (invert) module = 1 - module;
+                    int bit = (module == pass) ? 1 : 0;
+                    value |= (bit ? 0x01 : 0x00) << yy;
+                }
+                // Six pixels strip at 'scale' (repeated) width
+                fprintf(fp, "!%d%c", scale, value + 63);
+            }
+            // Return to start of the line
+            if (pass + 1 < passes) {
+                fprintf(fp, "$");
+            }
+        }
+        // Next line
+        if (y + LINE_HEIGHT < (dimension + quiet) * scale) {
+            fprintf(fp, "-");
+        }
+    }
+    // Exit sixel mode
+    fprintf(fp, "\x1B\\");
+    fprintf(fp, "\n");
+}
+
+
 int main(int argc, char *argv[])
 {
     FILE *ofp = stdout;
@@ -321,8 +368,9 @@ int main(int argc, char *argv[])
     qrcode_mask_pattern_t maskPattern = QRCODE_MASK_AUTO;
     int version = QRCODE_VERSION_AUTO;
     bool optimizeEcc = true;
-    int scale = 1;
+    int scale = 4;
     // SVG details
+    char *color = "currentColor";
     double moduleSize = 1.0f;
     double moduleRound = 0.0f;
     bool finderPart = false;
@@ -359,11 +407,14 @@ int main(int argc, char *argv[])
         else if (!strcmp(argv[i], "--output:dots6")) { outputMode = OUTPUT_TEXT; textRender = &textRenderDots6; }
         else if (!strcmp(argv[i], "--output:bmp")) { outputMode = OUTPUT_BITMAP; }
         else if (!strcmp(argv[i], "--output:svg")) { outputMode = OUTPUT_SVG; }
+        else if (!strcmp(argv[i], "--output:sixel")) { outputMode = OUTPUT_SIXEL; }
         else if (!strcmp(argv[i], "--bmp-scale")) { scale = atoi(argv[++i]); }
+        else if (!strcmp(argv[i], "--svg-color")) { color = argv[++i]; }
         else if (!strcmp(argv[i], "--svg-point")) { moduleSize = atof(argv[++i]); }
         else if (!strcmp(argv[i], "--svg-round")) { moduleRound = atof(argv[++i]); }
         else if (!strcmp(argv[i], "--svg-finder-round")) { finderPart = true; finderRound = atof(argv[++i]); }
         else if (!strcmp(argv[i], "--svg-alignment-round")) { alignmentPart = true; alignmentRound = atof(argv[++i]); }
+        else if (!strcmp(argv[i], "--sixel-scale")) { scale = atoi(argv[++i]); }
         else if (argv[i][0] == '-')
         {
             fprintf(stderr, "ERROR: Unrecognized parameter: %s\n", argv[i]); 
@@ -392,8 +443,9 @@ int main(int argc, char *argv[])
     {
         fprintf(stderr, "Usage:  qrcode [--ecl:<l|m|q|h>] [--uppercase] [--invert] [--quiet 4] [--output:<large|narrow|medium|compact|tiny|bmp|svg>] [--file filename] <value>\n");
         fprintf(stderr, "\n");
-        fprintf(stderr, "For --output:bmp:  [--bmp-scale 1]\n");
+        fprintf(stderr, "For --output:bmp:  [--bmp-scale 4]\n");
         fprintf(stderr, "For --output:svg:  [--svg-point 1.0] [--svg-round 0.0] [--svg-finder-round 0.0] [--svg-alignment-round 0.0]\n");
+        fprintf(stderr, "For --output:sixel:  [--sixel-scale 4]\n");
         fprintf(stderr, "\n");
         fprintf(stderr, "Example:  ./qrcode --output:svg --svg-round 1 --svg-finder-round 1 --svg-point 0.9 --file hello.svg \"Hello world!\"\n");
         fprintf(stderr, "\n");
@@ -428,9 +480,10 @@ int main(int argc, char *argv[])
 #endif
         switch (outputMode)
         {
-            case OUTPUT_TEXT: OutputQrCodeText(&qrcode, ofp, textRender, quiet, invert); break;
+            case OUTPUT_TEXT: OutputQrCodeText(&qrcode, ofp, dimension, textRender, quiet, invert); break;
             case OUTPUT_BITMAP: OutputQrCodeImageBitmap(&qrcode, ofp, dimension, quiet, scale, invert); break;
-            case OUTPUT_SVG: OutputQrCodeImageSvg(&qrcode, ofp, dimension, quiet, invert, moduleSize, moduleRound, finderPart, finderRound, alignmentPart, alignmentRound); break;
+            case OUTPUT_SVG: OutputQrCodeImageSvg(&qrcode, ofp, dimension, quiet, invert, color, moduleSize, moduleRound, finderPart, finderRound, alignmentPart, alignmentRound); break;
+            case OUTPUT_SIXEL: OutputQrCodeSixel(&qrcode, ofp, dimension, quiet, scale, invert); break;
             default: fprintf(ofp, "<error>"); break;
         }
     }
