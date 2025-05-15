@@ -15,7 +15,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
-#include <math.h>
 
 #include "qrcode.h"
 
@@ -330,7 +329,10 @@ static void OutputQrCodeSixel(qrcode_t *qrcode, FILE *fp, int dimension, int qui
             {
                 int value = 0;
                 for (int yy = 0; yy < LINE_HEIGHT; yy++) {
-                    int module = (QrCodeModuleGet(qrcode, floor((float)x / scale), floor((float)(y + yy) / scale)) & 1) ? 0x00 : 0x01;
+                    int cx = (x < 0 ? x - scale + 1 : x) / scale;
+                    int cy = (y + yy < 0 ? y + yy - scale + 1 : y + yy) / scale;
+//if (x == 0 && pass == 0) printf("y=%d, yy=%d, y+yy=%d, scale=%d, cx=%d cy=%d\n", y, yy, y + yy, scale, cx, cy);
+                    int module = (QrCodeModuleGet(qrcode, cx, cy) & 1) ? 0x00 : 0x01;
                     if (invert) module = 1 - module;
                     int bit = (module == pass) ? 1 : 0;
                     value |= (bit ? 0x01 : 0x00) << yy;
