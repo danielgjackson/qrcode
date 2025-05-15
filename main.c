@@ -338,7 +338,15 @@ static void OutputQrCodeSixel(qrcode_t *qrcode, FILE *fp, int dimension, int qui
                     value |= (bit ? 0x01 : 0x00) << yy;
                 }
                 // Six pixels strip at 'scale' (repeated) width
-                fprintf(fp, "!%d%c", scale, value + 63);
+                if (scale == 1) {
+                    fprintf(fp, "%c", value + 63);
+                } else if (scale == 2) {
+                    fprintf(fp, "%c%c", value + 63, value + 63);
+                } else if (scale == 3) {
+                    fprintf(fp, "%c%c%c", value + 63, value + 63, value + 63);
+                } else if (scale > 3) {
+                    fprintf(fp, "!%d%c", scale, value + 63);
+                }
             }
             // Return to start of the line
             if (pass + 1 < passes) {
