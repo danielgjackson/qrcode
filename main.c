@@ -23,6 +23,7 @@ typedef enum {
     OUTPUT_BITMAP,
     OUTPUT_SVG,
     OUTPUT_SIXEL,
+    OUTPUT_TGP,
 } output_mode_t;
 
 
@@ -364,6 +365,71 @@ static void OutputQrCodeSixel(qrcode_t *qrcode, FILE *fp, int dimension, int qui
 }
 
 
+// TGP - Terminal Graphics Protocol
+static void OutputQrCodeTerminalGraphicsProtocol(qrcode_t *qrcode, FILE *fp, int dimension, int quiet, int scale, bool invert)
+{
+    bool alpha = false;
+    int width = (2 * quiet + dimension) * scale;
+    int height = (2 * quiet + dimension) * scale;
+
+    // Image buffer
+    size_t imageBufferSize = (size_t)(height * width * (alpha ? 4 : 3));
+    unsigned char *imageBuffer = (unsigned char *)malloc(imageBufferSize);
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            int cx = (x / scale) - quiet;
+            int cy = (y / scale) - quiet;
+            int module = QrCodeModuleGet(qrcode, cx, cy) & 1;
+            if (invert) module = 1 - module;
+            int ofs = (y * width + x) * (alpha ? 4 : 3);
+            imageBuffer[ofs + 0] = module ? 0x00 : 0xff; // R
+            imageBuffer[ofs + 1] = module ? 0x00 : 0xff; // G
+            imageBuffer[ofs + 2] = module ? 0x00 : 0xff; // B
+        }
+    }
+
+    // Convert to Base64
+    size_t base64Size = ((imageBufferSize + 2) / 3) * 4;
+    char *base64Buffer = (char *)malloc(base64Size + 1);
+    // Manually encode to Base64
+    const char *base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    for (size_t i = 0; i < imageBufferSize; i += 3)
+    {
+        uint32_t value = (imageBuffer[i] << 16) | (i + 1 < imageBufferSize ? (imageBuffer[i + 1] << 8) : 0) | (i + 2 < imageBufferSize ? imageBuffer[i + 2] : 0);
+        size_t ofs = (i / 3) * 4;
+        base64Buffer[ofs++] = base64Chars[(value >> 18) & 0x3f];
+        base64Buffer[ofs++] = base64Chars[(value >> 12) & 0x3f];
+        base64Buffer[ofs++] = (i + 1 < imageBufferSize) ? base64Chars[(value >> 6) & 0x3f] : '=';
+        base64Buffer[ofs++] = (i + 2 < imageBufferSize) ? base64Chars[value & 0x3f] : '=';
+    }
+
+    // Chunked output
+    int MAX_CHUNK_SIZE = 4096;
+    char initialControls[256];
+    for (size_t i = 0; i < base64Size; i += MAX_CHUNK_SIZE) {
+        int chunkSize = (i + MAX_CHUNK_SIZE < base64Size) ? MAX_CHUNK_SIZE : (base64Size - i);
+        char *chunk = base64Buffer + i;
+        if (i == 0) {
+            // action transmit and display (a=T), direct transfer (t=d), uncompressed (o=), 3/4 bytes per pixel (f=24/32 bits per pixel), no responses at all (q=2)
+            sprintf(initialControls, "a=T,f=%d,s=%d,v=%d,t=d,q=2,", alpha ? 32 : 24, (int)width, (int)height);
+        } else {
+            initialControls[0] = '\0';
+        }
+        int nonTerminal = (i + MAX_CHUNK_SIZE < base64Size) ? 1 : 0;
+        fprintf(fp, "\x1B_G%sm=%d;%.*s\x1B\\", initialControls, nonTerminal, (int)chunkSize, chunk);
+    }
+    fprintf(fp, "\n");
+
+    // Clear up buffers
+    free(base64Buffer);
+    free(imageBuffer);
+
+    return;
+}
+
+
 int main(int argc, char *argv[])
 {
     FILE *ofp = stdout;
@@ -418,13 +484,15 @@ int main(int argc, char *argv[])
         else if (!strcmp(argv[i], "--output:bmp")) { outputMode = OUTPUT_BITMAP; }
         else if (!strcmp(argv[i], "--output:svg")) { outputMode = OUTPUT_SVG; }
         else if (!strcmp(argv[i], "--output:sixel")) { outputMode = OUTPUT_SIXEL; }
-        else if (!strcmp(argv[i], "--bmp-scale")) { scale = atoi(argv[++i]); }
+        else if (!strcmp(argv[i], "--output:tgp")) { outputMode = OUTPUT_TGP; }
         else if (!strcmp(argv[i], "--svg-color")) { color = argv[++i]; }
         else if (!strcmp(argv[i], "--svg-point")) { moduleSize = atof(argv[++i]); }
         else if (!strcmp(argv[i], "--svg-round")) { moduleRound = atof(argv[++i]); }
         else if (!strcmp(argv[i], "--svg-finder-round")) { finderPart = true; finderRound = atof(argv[++i]); }
         else if (!strcmp(argv[i], "--svg-alignment-round")) { alignmentPart = true; alignmentRound = atof(argv[++i]); }
-        else if (!strcmp(argv[i], "--sixel-scale")) { scale = atoi(argv[++i]); }
+        // Scale
+        else if (!strcmp(argv[i], "--scale")) { scale = atoi(argv[++i]); }
+        else if (!strcmp(argv[i], "--bmp-scale")) { scale = atoi(argv[++i]); }
         else if (argv[i][0] == '-')
         {
             fprintf(stderr, "ERROR: Unrecognized parameter: %s\n", argv[i]); 
@@ -451,11 +519,12 @@ int main(int argc, char *argv[])
 
     if (help)
     {
-        fprintf(stderr, "Usage:  qrcode [--ecl:<l|m|q|h>] [--uppercase] [--invert] [--quiet 4] [--output:<large|narrow|medium|compact|tiny|bmp|svg>] [--file filename] <value>\n");
+        fprintf(stderr, "Usage:  qrcode [--ecl:<l|m|q|h>] [--uppercase] [--invert] [--quiet 4] [--output:<large|narrow|medium|compact|tiny|bmp|svg|sixel|tgp>] [--file filename] <value>\n");
         fprintf(stderr, "\n");
-        fprintf(stderr, "For --output:bmp:  [--bmp-scale 4]\n");
+        fprintf(stderr, "For --output:bmp:  [--scale 4]\n");
         fprintf(stderr, "For --output:svg:  [--svg-point 1.0] [--svg-round 0.0] [--svg-finder-round 0.0] [--svg-alignment-round 0.0]\n");
-        fprintf(stderr, "For --output:sixel:  [--sixel-scale 4]\n");
+        fprintf(stderr, "For --output:sixel:  [--scale 4]\n");
+        fprintf(stderr, "For --output:tgp:  [--scale 4]\n");
         fprintf(stderr, "\n");
         fprintf(stderr, "Example:  ./qrcode --output:svg --svg-round 1 --svg-finder-round 1 --svg-point 0.9 --file hello.svg \"Hello world!\"\n");
         fprintf(stderr, "\n");
@@ -494,6 +563,7 @@ int main(int argc, char *argv[])
             case OUTPUT_BITMAP: OutputQrCodeImageBitmap(&qrcode, ofp, dimension, quiet, scale, invert); break;
             case OUTPUT_SVG: OutputQrCodeImageSvg(&qrcode, ofp, dimension, quiet, invert, color, moduleSize, moduleRound, finderPart, finderRound, alignmentPart, alignmentRound); break;
             case OUTPUT_SIXEL: OutputQrCodeSixel(&qrcode, ofp, dimension, quiet, scale, invert); break;
+            case OUTPUT_TGP: OutputQrCodeTerminalGraphicsProtocol(&qrcode, ofp, dimension, quiet, scale, invert); break;
             default: fprintf(ofp, "<error>"); break;
         }
     }
